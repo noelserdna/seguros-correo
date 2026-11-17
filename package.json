@@ -20,7 +20,8 @@
     "check:all": "pnpm check && pnpm test:integration",
     "reflejo": "tsx apps/server/scripts/reflejo.ts",
     "cuenta": "tsx apps/server/scripts/cuenta.ts",
-    "servidor": "tsx apps/server/src/main.ts"
+    "servidor": "tsx apps/server/src/main.ts",
+    "usuario": "tsx apps/server/scripts/usuario.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",

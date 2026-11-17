@@ -15,6 +15,13 @@
       "when": 1794921994516,
       "tag": "0001_auditoria_solo_insercion",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794922082213,
+      "tag": "0002_sesiones",
+      "breakpoints": true
     }
   ]
 }

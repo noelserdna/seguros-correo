@@ -7,6 +7,7 @@ Estado: validación técnica.
 - Fase 0, andamiaje: hecha.
 - Fase 1, prueba del reflejo: hecha contra un hosting real (DonDominio) y con Mail de Apple como segundo cliente. Falta Outlook de escritorio.
 - Fase 2, datos y sincronización de solo lectura: hecha.
+- Fase 3a, usuarios, sesiones, permisos por buzón y API de lectura: hecha.
 
 ## Requisitos
 
@@ -23,11 +24,20 @@ pnpm reflejo ayuda     # herramienta de la Fase 1; ver docs/outlook-reflejo.md
 pnpm cuenta alta       # da de alta el buzón de .env.reflejo (o el de pruebas de Docker)
 pnpm cuenta sync       # sincroniza todos los buzones hasta ponerlos al día
 pnpm cuenta estado     # carpetas, correos y eventos de cada buzón
-pnpm servidor          # servicio de sincronización en vivo
+pnpm usuario crear <correo> <nombre> [--admin]   # crea un usuario (pide la contraseña)
+pnpm usuario acceso <correo-usuario> <correo-buzón>   # le concede un buzón
+pnpm servidor          # API en http://127.0.0.1:3000 + sincronización en vivo
 pnpm dev:down          # parar el entorno (dev:reset borra también los datos)
 ```
 
 `pnpm cuenta` y `pnpm servidor` necesitan un fichero `.env` con `MASTER_KEY`, la clave con la que se cifran las contraseñas de los buzones (`openssl rand -hex 32`). Los correos originales se guardan en `datos/`.
+
+## Acceso y permisos
+
+- **Sesión por cookie** que el navegador no expone a la página ni envía a otros sitios, más un token de sesión obligatorio en cada petición que cambia algo.
+- **Contraseñas** guardadas con scrypt; límite de intentos fallidos de acceso.
+- **Permisos por buzón:** cada usuario ve solo los buzones que se le han concedido. Administrar no da acceso al contenido: el administrador tampoco lee un buzón que no tenga concedido. Lo que no se puede ver responde como si no existiera.
+- **Auditoría** de accesos, altas, concesiones y lecturas de correos, en un registro que solo admite inserciones.
 
 ## Cómo funciona la sincronización
 

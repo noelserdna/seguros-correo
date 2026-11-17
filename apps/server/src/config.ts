@@ -6,6 +6,14 @@ const schema = z.object({
   MASTER_KEY: z.string().optional(),
   /** Directorio de datos (correos originales). */
   DATA_DIR: z.string().default("datos"),
+  /** Dónde escucha la API. Por defecto solo en este equipo. */
+  HOST: z.string().default("127.0.0.1"),
+  PORT: z.coerce.number().default(3000),
+  /** Cookie de sesión solo por HTTPS. Activar en cuanto se sirva con HTTPS. */
+  COOKIE_SECURE: z
+    .enum(["0", "1", "true", "false"])
+    .default("0")
+    .transform((value) => value === "1" || value === "true"),
 
   // Servidor de correo de pruebas (pnpm dev:up). Solo lo usan las pruebas de integración.
   TEST_DATABASE_URL: z.string().default("postgres://correo:correo@127.0.0.1:54329/correo_test"),

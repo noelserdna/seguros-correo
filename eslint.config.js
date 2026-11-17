@@ -17,6 +17,8 @@ export default tseslint.config(
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
       "@typescript-eslint/consistent-type-imports": "error",
+      // Fastify exige plugins y manejadores asíncronos aunque no esperen nada.
+      "@typescript-eslint/require-await": "off",
     },
   },
   {

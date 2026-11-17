@@ -198,22 +198,40 @@ export async function backfillFolder(ctx: SyncContext, folderId: string): Promis
   if (folder.backfillBelow <= 1) return false;
 
   const top = folder.backfillBelow - 1;
-  const bottom = Math.max(1, top - options.windowSize + 1);
 
   const lock = await client.getMailboxLock(folder.path, { readOnly: true });
   try {
     if (!client.mailbox || Number(client.mailbox.uidValidity) !== folder.uidValidity) return true;
-    const fetched =
+
+    // Se avanza por los correos que existen, no por rangos de numeración: en un buzón
+    // con muchos correos borrados casi todos los números están vacíos.
+    const older =
       client.mailbox.exists === 0
         ? []
-        : await client.fetchAll(`${bottom}:${top}`, ENVELOPE_QUERY, { uid: true });
-    const window = fetched
+        : (await client.search({ uid: `1:${top}` }, { uid: true })) || [];
+    const window = older
+      .filter((uid) => uid <= top)
+      .sort((a, b) => b - a)
+      .slice(0, options.windowSize);
+    const bottom = window.at(-1);
+    if (bottom === undefined) {
+      await db.update(folders).set({ backfillBelow: 1 }).where(eq(folders.id, folder.id));
+      return false;
+    }
+
+    const fetched = await client.fetchAll(`${bottom}:${top}`, ENVELOPE_QUERY, { uid: true });
+    const remote = fetched
       .map(toRemoteMessage)
       .filter((message) => message.uid >= bottom && message.uid <= top)
       .sort((a, b) => b.uid - a.uid);
-    await ingestMessages(db, folder, folder.uidValidity, window, { emitEvents: false });
-    await db.update(folders).set({ backfillBelow: bottom }).where(eq(folders.id, folder.id));
-    return bottom > 1;
+    await ingestMessages(db, folder, folder.uidValidity, remote, { emitEvents: false });
+
+    const done = window.length < options.windowSize || bottom <= 1;
+    await db
+      .update(folders)
+      .set({ backfillBelow: done ? 1 : bottom })
+      .where(eq(folders.id, folder.id));
+    return !done;
   } finally {
     lock.release();
   }

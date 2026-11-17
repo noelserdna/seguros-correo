@@ -28,6 +28,21 @@ export const users = pgTable("users", {
   createdAt: createdAt(),
 });
 
+/** Sesiones de la interfaz web. Se guarda la huella del identificador, no el identificador. */
+export const sessions = pgTable(
+  "sessions",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    csrfToken: text("csrf_token").notNull(),
+    expiresAt: timestamptz("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [index("sessions_user").on(table.userId)],
+);
+
 export type AuthType = "password" | "oauth_microsoft" | "oauth_google";
 export type AccountState = "new" | "ok" | "auth_error" | "offline";
 
