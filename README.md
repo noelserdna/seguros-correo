@@ -8,6 +8,7 @@ Estado: validación técnica.
 - Fase 1, prueba del reflejo: hecha contra un hosting real (DonDominio) y con Mail de Apple como segundo cliente. Falta Outlook de escritorio.
 - Fase 2, datos y sincronización de solo lectura: hecha.
 - Fase 3a, usuarios, sesiones, permisos por buzón y API de lectura: hecha.
+- Fase 3b, interfaz web de lectura (carpetas, lista, lectura segura, adjuntos, búsqueda, archivo y avisos en vivo): hecha.
 
 ## Requisitos
 
@@ -26,7 +27,9 @@ pnpm cuenta sync       # sincroniza todos los buzones hasta ponerlos al día
 pnpm cuenta estado     # carpetas, correos y eventos de cada buzón
 pnpm usuario crear <correo> <nombre> [--admin]   # crea un usuario (pide la contraseña)
 pnpm usuario acceso <correo-usuario> <correo-buzón>   # le concede un buzón
-pnpm servidor          # API en http://127.0.0.1:3000 + sincronización en vivo
+pnpm build             # compila la interfaz web (apps/web/dist)
+pnpm servidor          # interfaz y API en http://127.0.0.1:3000 + sincronización en vivo
+pnpm web               # interfaz en modo desarrollo (puerto 5173, con el servidor en marcha)
 pnpm dev:down          # parar el entorno (dev:reset borra también los datos)
 ```
 
@@ -38,6 +41,20 @@ pnpm dev:down          # parar el entorno (dev:reset borra también los datos)
 - **Contraseñas** guardadas con scrypt; límite de intentos fallidos de acceso.
 - **Permisos por buzón:** cada usuario ve solo los buzones que se le han concedido. Administrar no da acceso al contenido: el administrador tampoco lee un buzón que no tenga concedido. Lo que no se puede ver responde como si no existiera.
 - **Auditoría** de accesos, altas, concesiones y lecturas de correos, en un registro que solo admite inserciones.
+
+## Interfaz web
+
+React, Vite y Tailwind, sin dependencias de terceros en tiempo de ejecución (la tipografía va incluida, no se carga de fuera). El diseño está en un lienzo aparte y el código sigue sus medidas y colores.
+
+- **Carpetas, lista y lectura** en tres columnas, con la conversación plegada sobre el correo abierto y un panel de contexto que se despliega a la derecha.
+- **Los correos se muestran saneados y aislados:** el servidor quita scripts, formularios, hojas de estilo y estilos peligrosos, y bloquea las imágenes externas hasta que se piden; la interfaz los pinta además en un marco que no puede ejecutar nada.
+- **Los adjuntos se descargan siempre como fichero.**
+- **Búsqueda** en todos los buzones concedidos y en el archivo, sin distinguir acentos, con filtros por remitente, fechas y adjuntos.
+- **Archivo:** lo retirado del buzón del servidor sigue visible, marcado como tal.
+- **Avisos en vivo:** lo que cambia en el servidor de correo aparece sin recargar.
+- **Huecos para plugins** ya reservados: riel de módulos, fila de la lista, barra de acciones y panel de contexto.
+
+Las acciones (responder, mover, borrar) aparecen desactivadas: llegan en las fases siguientes.
 
 ## Cómo funciona la sincronización
 
@@ -52,6 +69,7 @@ pnpm dev:down          # parar el entorno (dev:reset borra también los datos)
 
 ```
 apps/server/       Servicio: sincronización IMAP, envío SMTP, API
+apps/web/          Interfaz web
 packages/shared/   Código compartido entre servidor e interfaz
 docker/            Entorno de desarrollo
 docs/              Resultados de la prueba con Outlook

@@ -52,6 +52,8 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         path: folders.path,
         delimiter: folders.delimiter,
         specialUse: folders.specialUse,
+        /** Aún se está trayendo el histórico de esta carpeta. */
+        historyPending: sql<boolean>`coalesce(${folders.backfillBelow}, 1) > 1`,
         total: sql<number>`count(${folderMessages.id})::int`,
         unread: sql<number>`(count(${folderMessages.id}) filter (where not ('\\Seen' = any(${folderMessages.flags}))))::int`,
       })
@@ -125,6 +127,7 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
       .select({
         folderId: folders.id,
         path: folders.path,
+        specialUse: folders.specialUse,
         flags: folderMessages.flags,
         uid: folderMessages.uid,
       })

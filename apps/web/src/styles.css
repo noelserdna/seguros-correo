@@ -1,0 +1,58 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/* Lenguaje visual del lienzo de diseño: sobrio, denso y de oficina. */
+@theme {
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+
+  --color-ground: #f3f5f8;
+  --color-panel: #ffffff;
+  --color-line: #dde2e9;
+  --color-line-soft: #e9edf2;
+  --color-line-strong: #c9d1dc;
+  --color-ink: #1b2330;
+  --color-ink-2: #4a5362;
+  --color-accent: #1859c9;
+  --color-accent-strong: #123f8f;
+  --color-accent-soft: #e8f0fd;
+  --color-flag: #b4530a;
+  --color-ok: #1e8e5a;
+  --color-rail: #1b2330;
+  --color-rail-active: #2e3a4d;
+  --color-rail-ink: #c9d1dc;
+  --color-archive: #eef1f5;
+  --color-warn: #fdf1e7;
+  --color-warn-line: #e7b98c;
+  --color-warn-ink: #6b3205;
+  --color-bad: #fcedec;
+  --color-bad-line: #e3a7a2;
+  --color-bad-ink: #7a1f18;
+  --color-mark: #fde9b8;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}

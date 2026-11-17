@@ -21,7 +21,9 @@
     "reflejo": "tsx apps/server/scripts/reflejo.ts",
     "cuenta": "tsx apps/server/scripts/cuenta.ts",
     "servidor": "tsx apps/server/src/main.ts",
-    "usuario": "tsx apps/server/scripts/usuario.ts"
+    "usuario": "tsx apps/server/scripts/usuario.ts",
+    "build": "pnpm --filter @correo/web build",
+    "web": "pnpm --filter @correo/web dev"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",

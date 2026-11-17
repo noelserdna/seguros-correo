@@ -1,4 +1,5 @@
 /** Servicio: API HTTP y sincronización en vivo de todos los buzones dados de alta. */
+import { fileURLToPath } from "node:url";
 import { buildApp } from "./http/app.ts";
 import { openRuntime } from "./runtime.ts";
 import { SyncService } from "./sync/service.ts";
@@ -10,6 +11,7 @@ const app = await buildApp({
   db: runtime.db,
   secrets: runtime.secrets,
   rawStore: runtime.rawStore,
+  webDir: fileURLToPath(new URL("../../web/dist", import.meta.url)),
   cookieSecure: runtime.config.COOKIE_SECURE,
   onAccountCreated: (account) => sync.start(account),
 });

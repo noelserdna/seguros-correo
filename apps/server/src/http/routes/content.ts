@@ -107,6 +107,7 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
       .select({
         id: messages.id,
         accountId: messages.accountId,
+        messageIdHeader: messages.messageIdHeader,
         subject: messages.subject,
         fromName: messages.fromName,
         fromAddress: messages.fromAddress,
@@ -203,6 +204,7 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
       removedFromServerAt: Date | null;
       headline: string;
       location: string | null;
+      locationUse: string | null;
     }>(sql`
       select m.id,
              m.account_id as "accountId",
@@ -220,7 +222,13 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
                 join folders f on f.id = fm.folder_id
                where fm.message_id = m.id and fm.gone_at is null and f.gone_at is null
                order by fm.created_at
-               limit 1) as location
+               limit 1) as location,
+             (select f.special_use
+                from folder_messages fm
+                join folders f on f.id = fm.folder_id
+               where fm.message_id = m.id and fm.gone_at is null and f.gone_at is null
+               order by fm.created_at
+               limit 1) as "locationUse"
         from messages m,
              websearch_to_tsquery('es_sin_acentos', ${query.q}) q
        where m.account_id in (${sql.join(

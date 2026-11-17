@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import cookie from "@fastify/cookie";
+import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { ZodError } from "zod";
 import { AccountConnectionError } from "../accounts/accounts.ts";
@@ -15,6 +17,20 @@ import { authRoutes } from "./routes/auth.ts";
 import { contentRoutes } from "./routes/content.ts";
 import { mailRoutes } from "./routes/mail.ts";
 
+const APP_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: http: https:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "frame-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
 export const SESSION_COOKIE = "correo_sesion";
 export const CSRF_HEADER = "x-csrf-token";
 
@@ -25,6 +41,8 @@ export type AppDeps = {
   /** Marcar la cookie como solo-HTTPS. Activo en producción. */
   cookieSecure?: boolean;
   limiter?: AttemptLimiter;
+  /** Carpeta con la interfaz web ya compilada. Si existe, el servidor la sirve. */
+  webDir?: string;
   /** Se llama al dar de alta un buzón, para empezar a sincronizarlo. */
   onAccountCreated?: (account: Account) => void;
 };
@@ -118,6 +136,28 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(adminRoutes, { prefix: "/api/admin", context });
   await app.register(mailRoutes, { prefix: "/api", context });
   await app.register(contentRoutes, { prefix: "/api", context });
+
+  if (deps.webDir && existsSync(deps.webDir)) {
+    await app.register(fastifyStatic, { root: deps.webDir, wildcard: false });
+    // La interfaz es una sola página: cualquier dirección que no sea de la API la devuelve.
+    app.setNotFoundHandler((request, reply) => {
+      if (request.method !== "GET" || request.url.startsWith("/api/")) {
+        return reply.status(404).send({ error: "not_found", message: "No encontrado." });
+      }
+      return reply.sendFile("index.html");
+    });
+    app.addHook("onSend", async (_request, reply) => {
+      const type = String(reply.getHeader("content-type") ?? "");
+      if (!type.startsWith("text/html")) return;
+      // Solo código y estilos propios. Las imágenes externas se admiten porque el marco
+      // de los correos hereda esta política y las necesita cuando el usuario las pide.
+      void reply
+        .header("content-security-policy", APP_CSP)
+        .header("x-content-type-options", "nosniff")
+        .header("referrer-policy", "no-referrer")
+        .header("cache-control", "no-cache");
+    });
+  }
   return app;
 }
 
