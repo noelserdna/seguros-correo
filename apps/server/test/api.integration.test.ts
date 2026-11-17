@@ -73,6 +73,7 @@ beforeEach(async () => {
   app = await buildApp({
     db: env.db,
     secrets: env.secrets,
+    rawStore: env.rawStore,
     limiter: new AttemptLimiter(5, 60_000),
     onAccountCreated: (account) => created.push(account),
   });
@@ -327,6 +328,206 @@ describe("permisos por buzón y lectura", () => {
 
     expect((await send("DELETE", url, adminSession)).statusCode).toBe(200);
     expect((await get(`/api/accounts/${account.id}/folders`, other)).statusCode).toBe(404);
+  });
+
+  /** Sincroniza y devuelve los correos de la Entrada, del más reciente al más antiguo. */
+  async function inboxItems(session: Login): Promise<Item[]> {
+    await syncAll(env, account);
+    const folder = await inbox(session);
+    return (await get(`/api/folders/${folder.id}/messages`, session)).json<Page>().items;
+  }
+
+  type Html = { pending: boolean; html: string; blockedImages: number };
+
+  it("muestra el HTML del correo saneado, con las imágenes externas bloqueadas hasta que se pidan", async () => {
+    await appendMail(outlook, {
+      subject: "Hostil",
+      html: `<p onclick="x()">Hola <b>Marta</b></p><script>robar()</script>
+        <img src="https://rastreo.test/pixel.gif"><img src="cid:logo@correo">
+        <form action="https://malo.test"><input name="clave"></form>`,
+      attachments: [
+        {
+          filename: "logo.png",
+          content: Buffer.from("png-falso"),
+          cid: "logo@correo",
+          contentType: "image/png",
+        },
+      ],
+    });
+    const session = await login(tramitador.email);
+    const [item] = await inboxItems(session);
+
+    const blocked = (await get(`/api/messages/${item!.id}/html`, session)).json<Html>();
+    expect(blocked.pending).toBe(false);
+    expect(blocked.blockedImages).toBe(1);
+    expect(blocked.html).toContain("<b>Marta</b>");
+    expect(blocked.html).not.toMatch(/script|onclick|robar|<form|<input|rastreo\.test/);
+    expect(blocked.html).toContain(
+      `data:image/png;base64,${Buffer.from("png-falso").toString("base64")}`,
+    );
+
+    const allowed = (await get(`/api/messages/${item!.id}/html?images=1`, session)).json<Html>();
+    expect(allowed.blockedImages).toBe(0);
+    expect(allowed.html).toContain("https://rastreo.test/pixel.gif");
+  });
+
+  it("muestra un correo de solo texto conservando sus saltos de línea", async () => {
+    await appendMail(outlook, { subject: "Texto", text: "Línea uno\nLínea <dos>" });
+    const session = await login(tramitador.email);
+    const [item] = await inboxItems(session);
+    const { html } = (await get(`/api/messages/${item!.id}/html`, session)).json<Html>();
+    expect(html).toContain("white-space: pre-wrap");
+    expect(html).toContain("Línea &lt;dos&gt;");
+  });
+
+  it("descarga un adjunto siempre como fichero, lo anota y no lo da a quien no tiene el buzón", async () => {
+    const content = Buffer.from("%PDF-1.4 contenido del parte");
+    await appendMail(outlook, {
+      subject: "Con adjunto",
+      attachments: [{ filename: "Parte de daños.pdf", content }],
+    });
+    const session = await login(tramitador.email);
+    const [item] = await inboxItems(session);
+    const detail = (await get(`/api/messages/${item!.id}`, session)).json<{
+      message: { attachments: { id: string }[] };
+    }>().message;
+    const url = `/api/attachments/${detail.attachments[0]!.id}`;
+
+    const response = await get(url, session);
+    expect(response.statusCode).toBe(200);
+    expect(response.rawPayload.equals(content)).toBe(true);
+    expect(response.headers["content-type"]).toBe("application/octet-stream");
+    expect(response.headers["content-disposition"]).toContain("attachment;");
+    expect(response.headers["content-disposition"]).toContain("Parte%20de%20da%C3%B1os.pdf");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+
+    const downloads = await env.db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "attachment.downloaded"), eq(auditLog.userId, tramitador.id)));
+    expect(downloads.length).toBeGreaterThan(0);
+
+    expect((await get(url, await login(ajeno.email))).statusCode).toBe(404);
+  });
+
+  it("devuelve la conversación completa, ordenada", async () => {
+    await appendMail(outlook, { messageId: "<a@hilo.test>", subject: "Siniestro" });
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await appendMail(outlook, {
+      messageId: "<b@hilo.test>",
+      subject: "RE: Siniestro",
+      inReplyTo: "<a@hilo.test>",
+      references: ["<a@hilo.test>"],
+    });
+    const session = await login(tramitador.email);
+    const [latest] = await inboxItems(session);
+    const detail = (await get(`/api/messages/${latest!.id}`, session)).json<{
+      message: { threadId: string };
+    }>().message;
+
+    const thread = await get(`/api/threads/${detail.threadId}`, session);
+    expect(
+      thread.json<{ messages: { subject: string }[] }>().messages.map((m) => m.subject),
+    ).toEqual(["Siniestro", "RE: Siniestro"]);
+    expect(
+      (await get(`/api/threads/${detail.threadId}`, await login(ajeno.email))).statusCode,
+    ).toBe(404);
+  });
+
+  type Hit = {
+    subject: string;
+    headline: string;
+    location: string | null;
+    removedFromServerAt: string | null;
+  };
+  type Search = { items: Hit[]; marks?: { start: string; end: string } };
+  const search = async (session: Login, query: string) =>
+    (await get(`/api/search?${query}`, session)).json<Search>();
+
+  it("busca sin distinguir acentos, por remitente y con filtros, también en el archivo", async () => {
+    const uid = await appendMail(outlook, {
+      from: "Tramitación Albor <tramitacion@segurosalbor.test>",
+      subject: "Cierre de expediente",
+      text: "Adjuntamos el finiquito tras la peritación del vehículo.",
+      attachments: [{ filename: "finiquito.pdf", content: Buffer.from("%PDF") }],
+    });
+    await appendMail(outlook, {
+      subject: "Consulta de cobertura",
+      text: "Sin relación con lo otro.",
+    });
+    const session = await login(tramitador.email);
+    await inboxItems(session);
+
+    const byWord = await search(session, "q=peritacion");
+    expect(byWord.items.map((hit) => hit.subject)).toEqual(["Cierre de expediente"]);
+    expect(byWord.items[0]?.location).toBe("INBOX");
+    expect(byWord.items[0]?.headline).toContain(
+      `${byWord.marks!.start}peritación${byWord.marks!.end}`,
+    );
+
+    expect((await search(session, "q=albor")).items).toHaveLength(1);
+    expect((await search(session, "q=cobertura&attachments=1")).items).toHaveLength(0);
+    expect((await search(session, "q=finiquito&from=albor")).items).toHaveLength(1);
+    expect((await search(session, "q=finiquito&since=2999-01-01")).items).toHaveLength(0);
+    expect((await search(await login(ajeno.email), "q=finiquito")).items).toEqual([]);
+
+    // Retirado del buzón: se sigue encontrando, salvo que se excluya el archivo.
+    await inFolder(outlook, "INBOX", () => outlook.messageDelete(String(uid), { uid: true }));
+    await syncAll(env, account, { removalGraceMs: 0 });
+    const archived = await search(session, "q=finiquito");
+    expect(archived.items).toHaveLength(1);
+    expect(archived.items[0]?.location).toBeNull();
+    expect(archived.items[0]?.removedFromServerAt).not.toBeNull();
+    expect((await search(session, "q=finiquito&archive=0")).items).toHaveLength(0);
+
+    const archive = await get(`/api/accounts/${account.id}/archive`, session);
+    expect(archive.json<Page>().items.map((item) => item.subject)).toEqual([
+      "Cierre de expediente",
+    ]);
+  });
+
+  it("avisa en vivo de lo que llega, solo a quien tiene el buzón", async () => {
+    await syncAll(env, account);
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+
+    async function firstEvent(session: Login, waitMs: number): Promise<string | null> {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), waitMs);
+      try {
+        const response = await fetch(`${address}/api/stream`, {
+          headers: { cookie: session.cookie },
+          signal: controller.signal,
+        });
+        const reader = response.body!.getReader();
+        let text = "";
+        for (;;) {
+          const chunk = (await reader.read()) as { value?: Uint8Array; done: boolean };
+          if (chunk.done || !chunk.value) return null;
+          text += Buffer.from(chunk.value).toString("utf8");
+          const line = text.split("\n").find((entry) => entry.startsWith("data: "));
+          if (line) return line.slice(6);
+        }
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(timer);
+        controller.abort();
+      }
+    }
+
+    const owner = firstEvent(await login(tramitador.email), 12_000);
+    const stranger = firstEvent(await login(ajeno.email), 6_000);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await appendMail(outlook, { subject: "En vivo" });
+    await syncAll(env, account);
+
+    const received = await owner;
+    expect(received).not.toBeNull();
+    expect(JSON.parse(received!)).toMatchObject({
+      type: "message.received",
+      accountId: account.id,
+    });
+    expect(await stranger).toBeNull();
   });
 
   it("un correo retirado del buzón sigue disponible en el archivo", async () => {

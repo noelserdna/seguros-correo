@@ -1,7 +1,6 @@
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import type { Db } from "../../db/client.ts";
 import {
   accountAccess,
   accounts,
@@ -10,6 +9,7 @@ import {
   folders,
   messages,
 } from "../../db/schema.ts";
+import { assertAccess } from "../access.ts";
 import { audit, notFound, requireSession, type RouteOptions } from "../app.ts";
 import { publicAccount } from "./admin.ts";
 
@@ -19,15 +19,6 @@ const listQuery = z.object({
   /** Cursor devuelto por la página anterior. */
   before: z.string().optional(),
 });
-
-/** Comprueba que el usuario tiene concedido el buzón; si no, como si no existiera. */
-async function assertAccess(db: Db, userId: string, accountId: string): Promise<void> {
-  const [row] = await db
-    .select({ accountId: accountAccess.accountId })
-    .from(accountAccess)
-    .where(and(eq(accountAccess.userId, userId), eq(accountAccess.accountId, accountId)));
-  if (!row) throw notFound();
-}
 
 const encodeCursor = (date: Date, id: string) => `${date.toISOString()}_${id}`;
 function decodeCursor(cursor: string): { date: Date; id: string } {

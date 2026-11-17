@@ -9,8 +9,10 @@ import type { SecretBox } from "../crypto/secrets.ts";
 import type { Db } from "../db/client.ts";
 import { auditLog } from "../db/schema.ts";
 import type { Account } from "../imap/connection.ts";
+import type { RawStore } from "../storage/raw-store.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { contentRoutes } from "./routes/content.ts";
 import { mailRoutes } from "./routes/mail.ts";
 
 export const SESSION_COOKIE = "correo_sesion";
@@ -19,6 +21,7 @@ export const CSRF_HEADER = "x-csrf-token";
 export type AppDeps = {
   db: Db;
   secrets: SecretBox;
+  rawStore: RawStore;
   /** Marcar la cookie como solo-HTTPS. Activo en producción. */
   cookieSecure?: boolean;
   limiter?: AttemptLimiter;
@@ -114,6 +117,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(authRoutes, { prefix: "/api/auth", context });
   await app.register(adminRoutes, { prefix: "/api/admin", context });
   await app.register(mailRoutes, { prefix: "/api", context });
+  await app.register(contentRoutes, { prefix: "/api", context });
   return app;
 }
 
