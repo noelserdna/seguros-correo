@@ -7,7 +7,7 @@ import type { RawStore } from "../storage/raw-store.ts";
 import { downloadBodies } from "./bodies.ts";
 import { backfillFolder, syncFolder } from "./folder-sync.ts";
 import { syncFolderList } from "./folders.ts";
-import { reapDeleted } from "./reaper.ts";
+import { markRemoved } from "./removed.ts";
 import { DEFAULT_SYNC_OPTIONS, type SyncContext, type SyncOptions } from "./types.ts";
 
 export type SyncDeps = { db: Db; secrets: SecretBox; rawStore: RawStore };
@@ -18,7 +18,7 @@ export type CycleResult = {
   flagsChanged: number;
   gone: number;
   bodies: number;
-  deleted: number;
+  removed: number;
   /** Queda histórico o cuerpos por bajar: conviene lanzar otro ciclo enseguida. */
   pending: boolean;
 };
@@ -26,7 +26,7 @@ export type CycleResult = {
 /**
  * Un ciclo completo de sincronización de un buzón, con una sola conexión que se
  * cierra al terminar: carpetas, novedades de cada una, una ventana de histórico,
- * un lote de cuerpos y limpieza de borrados.
+ * un lote de cuerpos y anotación de los retirados del buzón.
  */
 export async function runSyncCycle(
   deps: SyncDeps,
@@ -39,7 +39,7 @@ export async function runSyncCycle(
     flagsChanged: 0,
     gone: 0,
     bodies: 0,
-    deleted: 0,
+    removed: 0,
     pending: false,
   };
   const client = imapClientFor(account, deps.secrets);
@@ -72,7 +72,7 @@ export async function runSyncCycle(
 
     result.bodies = await downloadBodies(ctx);
     if (result.bodies >= ctx.options.bodyBatch) result.pending = true;
-    result.deleted = await reapDeleted(deps.db, account.id, ctx.options.deleteGraceMs);
+    result.removed = await markRemoved(deps.db, account.id, ctx.options.removalGraceMs);
 
     await deps.db
       .update(accounts)

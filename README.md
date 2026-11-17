@@ -32,10 +32,11 @@ pnpm dev:down          # parar el entorno (dev:reset borra también los datos)
 ## Cómo funciona la sincronización
 
 - **Identidad:** cada presencia de un correo en una carpeta se identifica por carpeta, validez y uid. El correo en sí tiene un identificador propio que no cambia aunque se mueva, y se reconoce en otra carpeta por una huella (Message-ID, fecha de llegada, tamaño, asunto y remitente). El Message-ID solo no vale: no es único.
-- **Movimientos y borrados:** lo que desaparece de una carpeta se marca, no se borra. Un correo solo se da por borrado cuando lleva un tiempo sin ninguna copia viva.
+- **Movimientos y borrados:** lo que desaparece de una carpeta se marca, no se borra. Cuando un correo lleva un tiempo sin ninguna copia en el servidor se anota como retirado del buzón.
+- **Archivo propio:** que un correo se borre en el servidor (o se vacíe el buzón para liberar espacio) no lo elimina de aquí. El original, el texto y los adjuntos se conservan según una política de conservación propia, todavía por definir.
 - **Dos conexiones por buzón como máximo:** una escucha la Entrada y avisa al instante; la otra trabaja por ciclos y se cierra.
 - **Histórico:** se carga por ventanas, de lo más reciente a lo más antiguo, y los cuerpos se bajan después.
-- **Eventos:** cada cambio deja un evento en la base (`message.received`, `message.moved`, `message.flagsChanged`, `message.deleted`) en la misma transacción. Es el enganche para los plugins.
+- **Eventos:** cada cambio deja un evento en la base (`message.received`, `message.moved`, `message.flagsChanged`, `message.removed`) en la misma transacción. Es el enganche para los plugins.
 
 ## Estructura
 

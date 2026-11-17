@@ -159,7 +159,7 @@ export async function ingestMessages(
             .filter((id) => id !== folder.id);
           await tx
             .update(messages)
-            .set({ deletedOnServerAt: null })
+            .set({ removedFromServerAt: null })
             .where(eq(messages.id, messageId));
           result.attached++;
           if (emitEvents && fromFolderIds.length > 0) {

@@ -151,8 +151,11 @@ export const messages = pgTable(
     bodyText: text("body_text"),
     snippet: text("snippet"),
     hasAttachments: boolean("has_attachments"),
-    /** Sin ninguna copia viva en el servidor desde hace más que el periodo de gracia. */
-    deletedOnServerAt: timestamptz("deleted_on_server_at"),
+    /**
+     * Ya no está en el buzón del servidor (lo borraron o lo vaciaron para liberar espacio).
+     * No implica borrarlo aquí: nuestro archivo se conserva según su propia política.
+     */
+    removedFromServerAt: timestamptz("removed_from_server_at"),
     purgeAfter: timestamptz("purge_after"),
     legalHold: boolean("legal_hold").notNull().default(false),
     createdAt: createdAt(),
@@ -223,7 +226,7 @@ export const attachments = pgTable(
 );
 
 export type EventType =
-  "message.received" | "message.moved" | "message.flagsChanged" | "message.deleted";
+  "message.received" | "message.moved" | "message.flagsChanged" | "message.removed";
 
 /** Eventos para plugins, escritos en la misma transacción que el cambio que describen. */
 export const events = pgTable(

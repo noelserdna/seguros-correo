@@ -146,7 +146,7 @@ describe("carga inicial", () => {
 
 for (const useCondstore of [true, false]) {
   describe(`cambios hechos desde otro cliente (${useCondstore ? "con" : "sin"} CONDSTORE)`, () => {
-    const options = { useCondstore, deleteGraceMs: 0 };
+    const options = { useCondstore, removalGraceMs: 0 };
 
     it("detecta un correo nuevo y emite el evento", async () => {
       await syncAll(env, account, options);
@@ -200,7 +200,7 @@ for (const useCondstore of [true, false]) {
       let rows = await allMessages();
       expect(rows).toHaveLength(1);
       expect(rows[0]?.id).toBe(before!.id);
-      expect(rows[0]?.deletedOnServerAt).toBeNull();
+      expect(rows[0]?.removedFromServerAt).toBeNull();
       let instances = await instancesOf(before!.id);
       expect(instances.find((i) => i.path === "INBOX")?.goneAt).not.toBeNull();
       expect(instances.find((i) => i.path === "Siniestros")?.goneAt).toBeNull();
@@ -214,24 +214,30 @@ for (const useCondstore of [true, false]) {
       rows = await allMessages();
       expect(rows).toHaveLength(1);
       expect(rows[0]?.id).toBe(before!.id);
-      expect(rows[0]?.deletedOnServerAt).toBeNull();
+      expect(rows[0]?.removedFromServerAt).toBeNull();
       instances = await instancesOf(before!.id);
       expect(instances.filter((i) => i.goneAt === null).map((i) => i.path)).toEqual(["INBOX"]);
     });
 
-    it("da por borrado un correo solo cuando no queda ninguna copia y pasa el periodo de gracia", async () => {
+    it("anota un correo como retirado del buzón solo cuando no queda ninguna copia y pasa el periodo de gracia, sin borrar nuestro archivo", async () => {
       const uid = await appendMail(outlook, { subject: "Se va a borrar" });
       await syncAll(env, account, options);
 
       await inFolder(outlook, "INBOX", () => outlook.messageDelete(String(uid), { uid: true }));
 
-      // Con el periodo de gracia normal todavía no cuenta como borrado.
+      // Con el periodo de gracia normal todavía no cuenta como retirado.
       await syncAll(env, account, { useCondstore });
-      expect((await allMessages())[0]?.deletedOnServerAt).toBeNull();
+      expect((await allMessages())[0]?.removedFromServerAt).toBeNull();
 
       await syncAll(env, account, options);
-      expect((await allMessages())[0]?.deletedOnServerAt).not.toBeNull();
-      expect(await eventTypes()).toEqual(["message.deleted"]);
+      expect((await allMessages())[0]?.removedFromServerAt).not.toBeNull();
+      expect(await eventTypes()).toEqual(["message.removed"]);
+
+      // Retirado del buzón no es borrado: el archivo conserva el original y su texto.
+      const [archived] = await allMessages();
+      expect(archived?.subject).toBe("Se va a borrar");
+      expect(archived?.bodyText).toContain("Cuerpo del correo de prueba");
+      expect(await env.rawStore.has(archived!.rawSha256!)).toBe(true);
     });
   });
 }
@@ -319,12 +325,12 @@ describe("robustez", () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
     await outlook.mailboxCreate("Temporal");
     await appendMail(outlook, { subject: "Después" }, "Temporal");
-    await syncAll(env, account, { deleteGraceMs: 0 });
+    await syncAll(env, account, { removalGraceMs: 0 });
 
     const rows = await allMessages();
-    const live = rows.filter((m) => m.deletedOnServerAt === null).map((m) => m.subject);
+    const live = rows.filter((m) => m.removedFromServerAt === null).map((m) => m.subject);
     expect(live).toEqual(["Después"]);
-    expect(rows.find((m) => m.subject === "Antes")?.deletedOnServerAt).not.toBeNull();
+    expect(rows.find((m) => m.subject === "Antes")?.removedFromServerAt).not.toBeNull();
   });
 
   it("marca la carpeta que desaparece y conserva los correos que pasaron a otra", async () => {
@@ -334,12 +340,12 @@ describe("robustez", () => {
     const [before] = await allMessages();
 
     await outlook.mailboxRename("Vieja", "Nueva");
-    await syncAll(env, account, { deleteGraceMs: 0 });
+    await syncAll(env, account, { removalGraceMs: 0 });
 
     const rows = await allMessages();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.id).toBe(before!.id);
-    expect(rows[0]?.deletedOnServerAt).toBeNull();
+    expect(rows[0]?.removedFromServerAt).toBeNull();
     const paths = await env.db.select().from(folders).where(eq(folders.accountId, account.id));
     expect(paths.find((f) => f.path === "Vieja")?.goneAt).not.toBeNull();
     expect(paths.find((f) => f.path === "Nueva")?.goneAt).toBeNull();

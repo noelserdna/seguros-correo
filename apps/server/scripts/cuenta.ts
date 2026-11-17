@@ -48,7 +48,7 @@ async function alta(runtime: Runtime): Promise<void> {
 async function sync(runtime: Runtime): Promise<void> {
   for (const account of await runtime.db.select().from(accounts)) {
     const started = Date.now();
-    const total = { created: 0, attached: 0, flagsChanged: 0, gone: 0, bodies: 0, deleted: 0 };
+    const total = { created: 0, attached: 0, flagsChanged: 0, gone: 0, bodies: 0, removed: 0 };
     let cycles = 0;
     for (;;) {
       const result = await runSyncCycle(runtime, account);

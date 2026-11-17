@@ -13,14 +13,14 @@ export type SyncOptions = {
   windowSize: number;
   /** Cuerpos que se descargan por ciclo. */
   bodyBatch: number;
-  /** Tiempo que un correo sin ninguna copia viva espera antes de darse por borrado. */
-  deleteGraceMs: number;
+  /** Tiempo que un correo sin ninguna copia viva espera antes de anotarse como retirado del buzón. */
+  removalGraceMs: number;
 };
 
 export const DEFAULT_SYNC_OPTIONS: SyncOptions = {
   windowSize: 500,
   bodyBatch: 50,
-  deleteGraceMs: 10 * 60_000,
+  removalGraceMs: 10 * 60_000,
 };
 
 export type SyncContext = {

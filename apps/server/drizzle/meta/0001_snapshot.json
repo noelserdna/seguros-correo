@@ -1,6 +1,6 @@
 {
-  "id": "37252432-cf7f-41f5-a77e-ed70c1de02e9",
-  "prevId": "755777a4-3047-4554-b9e1-58a3da070dfc",
+  "id": "0e9939b6-f9ab-4d25-b03d-772c53935c1c",
+  "prevId": "b94ae31b-6822-45e4-bf0d-9f143175dd5f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -906,8 +906,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "deleted_on_server_at": {
-          "name": "deleted_on_server_at",
+        "removed_from_server_at": {
+          "name": "removed_from_server_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false

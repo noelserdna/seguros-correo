@@ -115,7 +115,7 @@ CREATE TABLE "messages" (
 	"body_text" text,
 	"snippet" text,
 	"has_attachments" boolean,
-	"deleted_on_server_at" timestamp with time zone,
+	"removed_from_server_at" timestamp with time zone,
 	"purge_after" timestamp with time zone,
 	"legal_hold" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
