@@ -75,12 +75,20 @@ Abrir en Outlook el correo de `enviar` y el de `responder`.
 - Sorpresas y cosas a tener en cuenta en la sincronización:
 - Cambios al esquema de la Fase 2:
 
+## Resultados de nuestra parte contra un buzón real (DonDominio)
+
+Ejecutado el 17/11/2026 con un buzón vacío en DonDominio (`imap.dondominio.com:993`, `smtp.dondominio.com:465`), **todavía sin Outlook**. Confirma lo que hace el servidor; falta la columna de Outlook de las tablas de arriba.
+
+- Servidor: Dovecot. Capacidades: IDLE, CONDSTORE, QRESYNC, MOVE, UIDPLUS y SPECIAL-USE disponibles; OBJECTID no.
+- Carpetas de serie, todas anunciadas por el servidor: `INBOX`, `Sent`, `Drafts`, `Spam`, `Trash`. Separador `/`.
+- Límite de conexiones: 10 por buzón (la 11.ª se rechaza). Con Outlook abierto quedarán menos.
+- Enviar: el servidor **no** guarda la copia en Enviados; la subimos nosotros y queda una sola.
+- Marcar leído, destacar y respondido: aplicado, y otra conexión en escucha lo recibe en 2 o 3 segundos.
+- Correo entrante: detectado en unos 3 segundos desde el envío.
+- Mover: el servidor devuelve el uid nuevo en la carpeta de destino, y la carpeta de origen avisa de la salida en 2 segundos. Las marcas viajan con el correo.
+- Borrador: subido a `Drafts` con la marca de borrador.
+- Carpeta nueva (`Siniestros`): creada y suscrita.
+
 ## Referencia: resultado contra el servidor de pruebas (Dovecot 2.4 en Docker)
 
-Ejecutado el 17/11/2026 para validar el script, sin Outlook:
-
-- Capacidades: IDLE, CONDSTORE, QRESYNC, MOVE, UIDPLUS y SPECIAL-USE disponibles; OBJECTID no.
-- Límite de conexiones: 10 por usuario (la 11.ª se rechaza).
-- Los cambios de marcas, las altas y las salidas de la carpeta llegan a `vigilar` en menos de un segundo.
-- El servidor no guarda solo la copia en Enviados: la subimos nosotros y devuelve el uid.
-- Al mover, el servidor devuelve el uid nuevo del correo en la carpeta de destino.
+Ejecutado el 17/11/2026 para validar el script, sin Outlook. Mismo comportamiento que DonDominio en todo lo anterior, con cambios detectados en menos de un segundo. Su separador de carpetas es `.` en lugar de `/`.
