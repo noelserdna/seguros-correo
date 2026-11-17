@@ -18,7 +18,9 @@
     "test:integration": "vitest run --project integration",
     "check": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm test",
     "check:all": "pnpm check && pnpm test:integration",
-    "reflejo": "tsx apps/server/scripts/reflejo.ts"
+    "reflejo": "tsx apps/server/scripts/reflejo.ts",
+    "cuenta": "tsx apps/server/scripts/cuenta.ts",
+    "servidor": "tsx apps/server/src/main.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",

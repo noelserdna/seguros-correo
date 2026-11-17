@@ -2,8 +2,13 @@ import { z } from "zod";
 
 const schema = z.object({
   DATABASE_URL: z.string().default("postgres://correo:correo@127.0.0.1:54329/correo"),
+  /** Clave maestra para cifrar credenciales: 64 caracteres hexadecimales. Sin valor por defecto. */
+  MASTER_KEY: z.string().optional(),
+  /** Directorio de datos (correos originales). */
+  DATA_DIR: z.string().default("datos"),
 
   // Servidor de correo de pruebas (pnpm dev:up). Solo lo usan las pruebas de integración.
+  TEST_DATABASE_URL: z.string().default("postgres://correo:correo@127.0.0.1:54329/correo_test"),
   TEST_IMAP_HOST: z.string().default("127.0.0.1"),
   TEST_IMAP_PORT: z.coerce.number().default(1993),
   TEST_SMTP_HOST: z.string().default("127.0.0.1"),
@@ -15,4 +20,13 @@ export type Config = z.infer<typeof schema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return schema.parse(env);
+}
+
+export function requireMasterKey(config: Config): string {
+  if (!config.MASTER_KEY) {
+    throw new Error(
+      "Falta MASTER_KEY. Genera una con `openssl rand -hex 32` y ponla en el fichero .env.",
+    );
+  }
+  return config.MASTER_KEY;
 }
