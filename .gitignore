@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Datos locales de la aplicación (correos originales, etc.)
+datos/
+
+# Generado por scripts/dev-up.sh: certificado y cuentas del servidor de correo de pruebas
+docker/mail/config/

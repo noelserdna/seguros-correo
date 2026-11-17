@@ -1,0 +1,33 @@
+{
+  "name": "seguros-correo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "dev:up": "bash scripts/dev-up.sh",
+    "dev:down": "docker compose -f docker/compose.dev.yml down",
+    "dev:reset": "docker compose -f docker/compose.dev.yml down --volumes",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "check": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm test",
+    "check:all": "pnpm check && pnpm test:integration",
+    "reflejo": "tsx apps/server/scripts/reflejo.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^10.0.0",
+    "prettier": "^3.10.0",
+    "tsx": "^4.23.0",
+    "typescript": "~6.0.0",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.0"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules
+dist
+pnpm-lock.yaml
+datos
+docker/mail/config
+test/corpus

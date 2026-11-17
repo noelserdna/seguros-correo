@@ -1,0 +1,62 @@
+# Entorno de desarrollo y pruebas. Arrancar con `pnpm dev:up` (genera antes el
+# certificado y las cuentas de prueba). Todo escucha solo en 127.0.0.1.
+name: seguros-correo-dev
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: correo
+      POSTGRES_PASSWORD: correo
+      POSTGRES_DB: correo
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U correo -d correo"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Postfix + Dovecot, lo que suelen usar los hostings.
+  # Buzones: ana@correo.test y luis@correo.test (ver scripts/dev-up.sh).
+  mail:
+    image: ghcr.io/docker-mailserver/docker-mailserver:${DMS_TAG:-17.0.0}
+    hostname: mail.correo.test
+    environment:
+      LOG_LEVEL: warn
+      SSL_TYPE: manual
+      SSL_CERT_PATH: /tmp/docker-mailserver/ssl/cert.pem
+      SSL_KEY_PATH: /tmp/docker-mailserver/ssl/key.pem
+      ENABLE_CLAMAV: 0
+      ENABLE_AMAVIS: 0
+      ENABLE_SPAMASSASSIN: 0
+      ENABLE_RSPAMD: 0
+      ENABLE_OPENDKIM: 0
+      ENABLE_OPENDMARC: 0
+      ENABLE_POLICYD_SPF: 0
+      ENABLE_FAIL2BAN: 0
+      ENABLE_POSTGREY: 0
+    ports:
+      - "127.0.0.1:1025:25" # SMTP entrante (sin autenticación, para simular correo externo)
+      - "127.0.0.1:1587:587" # Envío con STARTTLS
+      - "127.0.0.1:1993:993" # IMAP con TLS
+    volumes:
+      - ./mail/config:/tmp/docker-mailserver
+      - maildata:/var/mail
+      - mailstate:/var/mail-state
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "ss --listening --tcp | grep -qE ':(imaps|993)\\b' && ss --listening --tcp | grep -qE ':(submission|587)\\b'",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+
+volumes:
+  pgdata:
+  maildata:
+  mailstate:
