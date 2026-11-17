@@ -89,6 +89,32 @@ Ejecutado el 17/11/2026 con un buzón vacío en DonDominio (`imap.dondominio.com
 - Borrador: subido a `Drafts` con la marca de borrador.
 - Carpeta nueva (`Siniestros`): creada y suscrita.
 
+## Resultados con un segundo cliente real: Mail de Apple
+
+Ejecutado el 17/11/2026 sobre el mismo buzón de DonDominio, con Mail de macOS como segundo cliente y nuestra herramienta escuchando Entrada, Enviados y Borradores. **No sustituye a la prueba con Outlook**, pero valida el principio con un cliente real.
+
+Nuestra aplicación → Mail: los dos correos enviados por nosotros se ven agrupados en hilo, con la tabla y los acentos correctos; marcas, carpeta nueva, enviados y borrador aparecen tal cual.
+
+Mail → nuestra aplicación:
+
+| Acción en Mail     | Lo que recibimos                                                  | Retraso    |
+| ------------------ | ----------------------------------------------------------------- | ---------- |
+| Abrir un correo    | Marca de leído                                                    | Inmediato  |
+| Marcar no leído    | Se quita la marca                                                 | Inmediato  |
+| Poner bandera      | `\Flagged` más una palabra clave propia, `$MailFlagBit0`          | Inmediato  |
+| Mover a carpeta    | Sale de Entrada; aparece en destino con sus marcas                | Inmediato  |
+| Guardar borrador   | Correo nuevo en `Drafts`                                          | Al guardar |
+| Enviar el borrador | Sale de `Drafts`; Mail sube la copia a `Sent`                     | Unos 10 s  |
+| Responder          | Copia en `Sent` y marca de respondido en el original              | Inmediato  |
+| Borrar             | Lo mueve a `Trash`; no lo deja marcado como borrado en la carpeta | Inmediato  |
+
+Lo que esto enseña para el diseño:
+
+- **Los clientes añaden palabras clave propias** (`$MailFlagBit0`, `$NotJunk`, `NotJunk`). Las marcas son un conjunto abierto: hay que guardarlas todas y modificar siempre añadiendo o quitando, nunca reemplazando, para no borrar las de otro cliente.
+- **El mismo Message-ID aparece en dos carpetas como correos distintos.** Al enviarse un correo a sí mismo, la copia de `Sent` y la recibida en Entrada comparten Message-ID, y Mail marcó las dos como respondidas. Confirma que el Message-ID no puede ser la identidad del correo.
+- **Un borrador enviado desaparece de `Drafts` y aparece como correo nuevo en `Sent`**, con otro identificador. No hay continuidad entre ambos en el servidor.
+- Mail usó las carpetas que anuncia el servidor (`Sent`, `Drafts`, `Trash`) y no creó carpetas duplicadas.
+
 ## Referencia: resultado contra el servidor de pruebas (Dovecot 2.4 en Docker)
 
 Ejecutado el 17/11/2026 para validar el script, sin Outlook. Mismo comportamiento que DonDominio en todo lo anterior, con cambios detectados en menos de un segundo. Su separador de carpetas es `.` en lugar de `/`.
