@@ -1,6 +1,6 @@
 /** Tipos y llamadas del módulo de tramitación. Reflejan lo que devuelve el servidor. */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPatch, apiPost, apiPut } from "../../api.ts";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "../../api.ts";
 
 export const BASE = "/plugins/tramitacion";
 export const KEY = ["plugins", "tramitacion"] as const;
@@ -59,7 +59,8 @@ export type Task = {
   chaseCount: number;
   chaseDays: number | null;
   doneAt: string | null;
-  evidenceMessageId: string | null;
+  /** Correos del expediente que prueban la tarea; pueden ser varios. */
+  evidenceIds: string[];
   dueOverride: string | null;
 };
 
@@ -234,8 +235,13 @@ export function useApplyView() {
 
 export const tramitacion = {
   patchTask: (id: string, body: object) => apiPatch<CaseView>(`${BASE}/tasks/${id}`, body),
-  evidence: (id: string, messageId: string, complete: boolean) =>
-    apiPost<CaseView>(`${BASE}/tasks/${id}/evidence`, { messageId, complete }),
+  evidence: (id: string, messageIds: string | string[], complete: boolean) =>
+    apiPost<CaseView>(`${BASE}/tasks/${id}/evidence`, {
+      messageIds: Array.isArray(messageIds) ? messageIds : [messageIds],
+      complete,
+    }),
+  removeEvidence: (id: string, messageId: string) =>
+    apiDelete<CaseView>(`${BASE}/tasks/${id}/evidence/${messageId}`),
   chaseDraft: (id: string) =>
     apiPost<{ draft: { accountId: string; to: string | null; subject: string; text: string } }>(
       `${BASE}/tasks/${id}/chase`,

@@ -32,7 +32,7 @@ const task = (overrides: Partial<EngineTask> & { id: string }): EngineTask => ({
   dueOverride: null,
   legalRef: null,
   doneAt: null,
-  evidenceMessageId: null,
+  evidenceIds: [],
   dependsOn: [],
   ...overrides,
 });
@@ -64,7 +64,7 @@ const plan: EngineTask[] = [
     phaseId: "apertura",
     name: "Registrar el atestado",
     status: "hecha",
-    evidenceMessageId: "correo",
+    evidenceIds: ["correo"],
     doneAt: "2026-11-04",
     dueAnchor: "apertura",
     dueDays: 1,
@@ -74,7 +74,7 @@ const plan: EngineTask[] = [
     phaseId: "apertura",
     name: "Pedir documentación al cliente",
     status: "hecha",
-    evidenceMessageId: "correo",
+    evidenceIds: ["correo"],
     doneAt: "2026-11-10",
     dependsOn: ["T1"],
     dueDays: 2,
@@ -84,7 +84,7 @@ const plan: EngineTask[] = [
     phaseId: "comunicacion",
     name: "Comunicar a la aseguradora",
     status: "hecha",
-    evidenceMessageId: "correo",
+    evidenceIds: ["correo"],
     doneAt: "2026-11-05",
     dependsOn: ["T1"],
     dueAnchor: "siniestro",
@@ -96,7 +96,7 @@ const plan: EngineTask[] = [
     phaseId: "comunicacion",
     name: "Obtener el número de siniestro",
     status: "hecha",
-    evidenceMessageId: "correo",
+    evidenceIds: ["correo"],
     doneAt: "2026-11-07",
     dependsOn: ["T3"],
     dueDays: 3,
@@ -107,7 +107,7 @@ const plan: EngineTask[] = [
     phaseId: "comunicacion",
     name: "Decidir si aplica convenio",
     status: "hecha",
-    evidenceMessageId: "correo",
+    evidenceIds: ["correo"],
     doneAt: "2026-11-07",
     dependsOn: ["T3"],
     dueDays: 2,
@@ -117,7 +117,7 @@ const plan: EngineTask[] = [
     phaseId: "valoracion",
     name: "Designación de perito",
     status: "hecha",
-    evidenceMessageId: "correo",
+    evidenceIds: ["correo"],
     doneAt: "2026-11-10",
     dependsOn: ["T4"],
     dueDays: 5,
@@ -329,7 +329,7 @@ describe("motor de la tramitación", () => {
       waitingOn: "Taller",
       chaseAt: "2026-11-20",
     });
-    expect(step([task({ id: "x", status: "hecha", evidenceMessageId: "m" })])).toEqual({
+    expect(step([task({ id: "x", status: "hecha", evidenceIds: ["m"] })])).toEqual({
       kind: "cerrar",
     });
     expect(step([])).toEqual({ kind: "sin_plan" });
@@ -436,7 +436,7 @@ describe("motor de la tramitación", () => {
 
     // Con el correo, la fase vale; una fase que no aplica entera no necesita correo.
     const proven = tasks.map((entry) =>
-      entry.id === "a" ? { ...entry, evidenceMessageId: "m1" } : entry,
+      entry.id === "a" ? { ...entry, evidenceIds: ["m1"] } : entry,
     );
     const after = summarize({ kase, phases: two, tasks: proven, events: [], today: TODAY });
     expect(after.phases[0]!.state).toBe("hecha");

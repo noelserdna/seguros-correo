@@ -4,7 +4,7 @@
  * Necesita el módulo de expedientes. Sin IA: lo que se sabe del correo lo confirma una
  * persona.
  */
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { messages } from "../../db/schema.ts";
 import { accessibleAccountIds, assertAccess } from "../../http/access.ts";
@@ -76,7 +76,12 @@ const taskPatch = z
     force: z.boolean(),
   })
   .partial();
-const evidenceBody = z.object({ messageId: z.uuid(), complete: z.boolean().default(true) });
+const evidenceBody = z.object({
+  messageId: z.uuid().optional(),
+  messageIds: z.array(z.uuid()).max(50).optional(),
+  complete: z.boolean().default(true),
+});
+const evidenceParams = z.object({ id: z.uuid(), messageId: z.uuid() });
 const newTaskBody = z.object({
   phaseId: z.uuid(),
   name: z.string().trim().min(1).max(200),
@@ -242,7 +247,6 @@ export const tramitacionPlugin: ServerPlugin = {
             chaseCount: raw.chaseCount,
             chaseDays: raw.chaseDays,
             description: raw.description,
-            evidenceMessageId: raw.evidenceMessageId,
             key: raw.key,
           };
         }),
@@ -586,54 +590,81 @@ export const tramitacionPlugin: ServerPlugin = {
       return viewOf(user.id, task.caseId);
     });
 
-    // «Este correo cumple la tarea»: queda como prueba. Si no la cumple del todo, se anota.
+    // Correos que prueban una tarea; pueden ser varios, porque la documentación llega por
+    // partes. Con «complete» la tarea queda hecha; sin él, el correo queda como prueba
+    // parcial y la espera sigue.
     app.post("/tasks/:id/evidence", async (request) => {
       const { user } = requireSession(request);
       const { id } = idParams.parse(request.params);
-      const { messageId, complete } = evidenceBody.parse(request.body);
+      const body = evidenceBody.parse(request.body);
+      const messageIds = [
+        ...new Set([...(body.messageId ? [body.messageId] : []), ...(body.messageIds ?? [])]),
+      ];
+      if (messageIds.length === 0) throw new HttpError(400, "no_messages", "Falta el correo.");
       const { task, kase } = await loadOwnTask(user.id, id);
-      const [message] = await db.select().from(messages).where(eq(messages.id, messageId));
-      if (!message) throw notFound();
-      await assertAccess(db, user.id, message.accountId);
+      const found = await db
+        .select({ id: messages.id, accountId: messages.accountId, subject: messages.subject })
+        .from(messages)
+        .where(inArray(messages.id, messageIds));
+      if (found.length !== messageIds.length) throw notFound();
+      for (const message of found) await assertAccess(db, user.id, message.accountId);
+      const subjects = found.map((message) => message.subject);
       await db.transaction(async (tx) => {
-        // La prueba es un correo del expediente: si aún no estaba, entra en él.
-        await tx.execute(sql`
-          insert into exp_case_messages (message_id, case_id, how, added_by)
-          values (${messageId}, ${task.caseId}, 'prueba', ${user.id})
-          on conflict do nothing`);
-        if (complete) {
+        for (const messageId of messageIds) {
+          // La prueba es un correo del expediente: si aún no estaba, entra en él.
+          await tx.execute(sql`
+            insert into exp_case_messages (message_id, case_id, how, added_by)
+            values (${messageId}, ${task.caseId}, 'prueba', ${user.id})
+            on conflict do nothing`);
+          await tx.execute(sql`
+            insert into tra_task_evidence (task_id, message_id, added_by)
+            values (${id}, ${messageId}, ${user.id}) on conflict do nothing`);
+        }
+        if (body.complete) {
           // Si ya estaba hecha (validar una fase), se conserva cuándo y quién la hizo.
           await tx.execute(sql`
             update tra_tasks set status = 'hecha', done_at = coalesce(done_at, ${todayInSpain()}),
-                   done_by = coalesce(done_by, ${user.id}),
-                   evidence_message_id = ${messageId}, waiting_contact_id = null, waiting_client = false,
-                   chase_at = null, updated_at = now()
+                   done_by = coalesce(done_by, ${user.id}), waiting_contact_id = null,
+                   waiting_client = false, chase_at = null, updated_at = now()
              where id = ${id}`);
-          await recordEvent(tx, {
-            caseId: task.caseId,
-            taskId: id,
-            userId: user.id,
-            kind: "prueba",
-            detail: { messageId, subject: message.subject },
-          });
-        } else {
-          await recordEvent(tx, {
-            caseId: task.caseId,
-            taskId: id,
-            userId: user.id,
-            kind: "nota",
-            detail: {
-              messageId,
-              subject: message.subject,
-              text: "Correo anotado; la espera sigue.",
-            },
-          });
         }
+        await recordEvent(tx, {
+          caseId: task.caseId,
+          taskId: id,
+          userId: user.id,
+          kind: "prueba",
+          detail: {
+            messageIds: messageIds.join(","),
+            subject: subjects.join(" · "),
+            count: messageIds.length,
+            complete: body.complete,
+          },
+        });
       });
-      await touched(kase, user.id, complete ? "task_evidence" : "task_note", {
+      await touched(kase, user.id, body.complete ? "task_evidence" : "task_note", {
         taskId: id,
-        messageId,
+        messageIds,
       });
+      return viewOf(user.id, task.caseId);
+    });
+
+    // Quitar un correo de las pruebas de una tarea (metido por error). Sigue en el expediente.
+    app.delete("/tasks/:id/evidence/:messageId", async (request) => {
+      const { user } = requireSession(request);
+      const { id, messageId } = evidenceParams.parse(request.params);
+      const { task, kase } = await loadOwnTask(user.id, id);
+      const removed = await db.execute(sql`
+        delete from tra_task_evidence where task_id = ${id} and message_id = ${messageId}
+        returning message_id`);
+      if (removed.rows.length === 0) throw notFound();
+      await recordEvent(db, {
+        caseId: task.caseId,
+        taskId: id,
+        userId: user.id,
+        kind: "nota",
+        detail: { messageId, text: "Correo quitado de las pruebas" },
+      });
+      await touched(kase, user.id, "task_evidence_removed", { taskId: id, messageId });
       return viewOf(user.id, task.caseId);
     });
 

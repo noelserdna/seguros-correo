@@ -36,8 +36,8 @@ export type EngineTask = {
   dueOverride: Day | null;
   legalRef: string | null;
   doneAt: Day | null;
-  /** El correo del expediente que demuestra que se hizo. */
-  evidenceMessageId: string | null;
+  /** Los correos del expediente que demuestran que se hizo (la documentación puede llegar en varios). */
+  evidenceIds: string[];
   /** Ids de las tareas de las que depende. */
   dependsOn: string[];
 };
@@ -201,7 +201,9 @@ export function phaseStates(phases: EnginePhase[], tasks: DerivedTask[]): Map<st
       const done = own.filter((task) => task.state === "hecha");
       // Una fase que no aplica entera no tiene nada que validar.
       state =
-        done.length === 0 || done.some((task) => task.evidenceMessageId) ? "hecha" : "por_validar";
+        done.length === 0 || done.some((task) => task.evidenceIds.length > 0)
+          ? "hecha"
+          : "por_validar";
     } else if (own.some((task) => task.lateDays > 0)) state = "retraso";
     else if (own.some((task) => ["lista", "en_curso", "esperando"].includes(task.state)))
       state = "actual";

@@ -131,7 +131,7 @@ export type TaskRow = {
   dueOverride: Day | null;
   legalRef: string | null;
   doneAt: Day | null;
-  evidenceMessageId: string | null;
+  evidenceIds: string[];
   dependsOn: string[];
 };
 
@@ -144,7 +144,7 @@ const taskColumns = sql`t.id, t.case_id as "caseId", t.phase_id as "phaseId", t.
   t.chase_days as "chaseDays", t.chase_count as "chaseCount", t.due_anchor as "dueAnchor",
   t.due_days as "dueDays", t.due_unit as "dueUnit", to_char(t.due_override, 'YYYY-MM-DD') as "dueOverride",
   t.legal_ref as "legalRef", to_char(t.done_at, 'YYYY-MM-DD') as "doneAt",
-  t.evidence_message_id as "evidenceMessageId",
+  coalesce((select array_agg(e.message_id order by e.added_at) from tra_task_evidence e where e.task_id = t.id), '{}') as "evidenceIds",
   coalesce((select array_agg(d.depends_on_id) from tra_task_deps d where d.task_id = t.id), '{}') as "dependsOn"`;
 
 export async function loadTask(db: Db | Tx, id: string): Promise<TaskRow | null> {

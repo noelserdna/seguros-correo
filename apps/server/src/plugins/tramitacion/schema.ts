@@ -179,6 +179,23 @@ export async function setupTramitacion(db: Db): Promise<void> {
   // Borrador de reclamación en curso: al enviarse, la reclamación se apunta sola.
   await db.execute(sql`alter table tra_tasks add column if not exists chase_outbound_id uuid`);
   await db.execute(sql`create index if not exists tra_tasks_assignee on tra_tasks (assignee_id)`);
+  // Los correos que prueban una tarea: pueden ser varios (la documentación llega por partes).
+  await db.execute(sql`
+    create table if not exists tra_task_evidence (
+      task_id uuid not null references tra_tasks(id) on delete cascade,
+      message_id uuid not null references messages(id) on delete cascade,
+      added_by uuid,
+      added_at timestamptz not null default now(),
+      primary key (task_id, message_id)
+    )`);
+  // La única prueba que se guardaba antes pasa a la lista.
+  await db.execute(sql`
+    insert into tra_task_evidence (task_id, message_id)
+    select id, evidence_message_id from tra_tasks where evidence_message_id is not null
+    on conflict do nothing`);
+  await db.execute(
+    sql`update tra_tasks set evidence_message_id = null where evidence_message_id is not null`,
+  );
   await db.execute(sql`
     create table if not exists tra_task_deps (
       task_id uuid not null references tra_tasks(id) on delete cascade,

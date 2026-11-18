@@ -336,7 +336,7 @@ export function TramitacionContext({ message }: { message: MessageDetail }) {
                       run(tramitacion.evidence(entry.awaited!.taskId, message.id, false))
                     }
                   >
-                    Sigue pendiente
+                    Es una parte, sigue pendiente
                   </button>
                 </span>
                 <span className="text-ink-2">

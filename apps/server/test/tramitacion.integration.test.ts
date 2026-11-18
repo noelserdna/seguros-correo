@@ -52,7 +52,7 @@ type Task = {
   blockers: string[];
   chaseCount: number;
   chaseAt: string | null;
-  evidenceMessageId: string | null;
+  evidenceIds: string[];
 };
 type View = {
   case: {
@@ -306,7 +306,7 @@ describe("tramitación", () => {
     view = (
       await call("POST", `${BASE}/tasks/${task(view, "T7").id}/evidence`, { messageId: informe })
     ).json<View>();
-    expect(task(view, "T7")).toMatchObject({ state: "hecha", evidenceMessageId: informe });
+    expect(task(view, "T7")).toMatchObject({ state: "hecha", evidenceIds: [informe] });
     expect(task(view, "T8").state).toBe("lista");
     expect(view.history.map((event) => event.kind).slice(0, 2)).toEqual(["prueba", "espera"]);
     expect(view.health.idleDays).toBe(0);
@@ -318,35 +318,48 @@ describe("tramitación", () => {
     expect(cycle.statusCode).toBe(400);
   });
 
-  it("una fase no se da por buena sin un correo del expediente que la valide", async () => {
+  it("una fase no se da por buena sin correos del expediente que la validen, y pueden ser varios", async () => {
     let view = await open("Atestado 2026/9050");
     const patch = async (key: string, body: object) =>
       (await call("PATCH", `${BASE}/tasks/${task(view, key).id}`, body)).json<View>();
+    const evidence = async (key: string, body: object) =>
+      (await call("POST", `${BASE}/tasks/${task(view, key).id}/evidence`, body)).json<View>();
     view = await patch("T1", { status: "hecha" });
     view = await patch("T2", { status: "hecha" });
     expect(view.phases[0]).toMatchObject({ name: "Apertura", state: "por_validar" });
     expect(view.nextStep).toMatchObject({ kind: "validar", name: "Apertura" });
-    const doneAt = (
-      await env.db.execute<{ day: string }>(
-        sql`select to_char(done_at, 'YYYY-MM-DD') as day from tra_tasks where id = ${task(view, "T2").id}`,
-      )
-    ).rows[0]!.day;
 
-    // La documentación del cliente llega en un correo suelto: al validar, entra en el expediente.
-    await appendMail(outlook, { subject: "Os mando el DNI y el permiso" });
+    // La documentación del cliente llega en dos correos sueltos: entran en el expediente.
+    await appendMail(outlook, { subject: "Os mando el DNI" });
+    await appendMail(outlook, { subject: "Y el permiso de circulación" });
     await settle();
-    const docs = await idOf("Os mando el DNI y el permiso");
-    view = (
-      await call("POST", `${BASE}/tasks/${task(view, "T2").id}/evidence`, { messageId: docs })
-    ).json<View>();
+    const dni = await idOf("Os mando el DNI");
+    const permiso = await idOf("Y el permiso de circulación");
+    view = await patch("T2", { status: "pendiente" });
+    view = await patch("T2", { waiting: { client: true } });
+    // El primero es una parte: queda como prueba y la espera sigue.
+    view = await evidence("T2", { messageId: dni, complete: false });
+    expect(task(view, "T2")).toMatchObject({ state: "esperando", evidenceIds: [dni] });
+    // El segundo completa la tarea; la fase queda validada con los dos.
+    view = await evidence("T2", { messageIds: [permiso], complete: true });
+    expect(task(view, "T2")).toMatchObject({ state: "hecha", evidenceIds: [dni, permiso] });
     expect(view.phases[0]!.state).toBe("hecha");
-    expect(task(view, "T2")).toMatchObject({ state: "hecha", evidenceMessageId: docs });
     expect(view.nextStep.kind).not.toBe("validar");
-    const linked = await env.db.execute<{ how: string; day: string }>(sql`
-      select cm.how, (select to_char(done_at, 'YYYY-MM-DD') from tra_tasks where id = ${task(view, "T2").id}) as day
-        from exp_case_messages cm where cm.case_id = ${view.case.id} and cm.message_id = ${docs}`);
-    // Queda en el expediente como prueba, y la tarea conserva el día en que se hizo.
-    expect(linked.rows[0]).toEqual({ how: "prueba", day: doneAt });
+    const linked = await env.db.execute<{ how: string }>(sql`
+      select how from exp_case_messages
+       where case_id = ${view.case.id} and message_id in (${dni}, ${permiso})`);
+    expect(linked.rows.map((row) => row.how)).toEqual(["prueba", "prueba"]);
+
+    // Quitar una prueba metida por error; sin ninguna, la fase vuelve a estar por validar.
+    const remove = async (messageId: string) =>
+      (
+        await call("DELETE", `${BASE}/tasks/${task(view, "T2").id}/evidence/${messageId}`)
+      ).json<View>();
+    view = await remove(dni);
+    expect(task(view, "T2").evidenceIds).toEqual([permiso]);
+    expect(view.phases[0]!.state).toBe("hecha");
+    view = await remove(permiso);
+    expect(view.phases[0]!.state).toBe("por_validar");
   });
 
   it("cerrar pide confirmación si quedan tareas, y la cartera lo refleja", async () => {
