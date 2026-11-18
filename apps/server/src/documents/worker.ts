@@ -1,6 +1,6 @@
+import { parseMail } from "../mail/parse.ts";
 import { createHash } from "node:crypto";
 import { asc, eq, sql } from "drizzle-orm";
-import { simpleParser } from "mailparser";
 import type { Db, Tx } from "../db/client.ts";
 import { documentPages, documentTexts, events } from "../db/schema.ts";
 import type { RawStore } from "../storage/raw-store.ts";
@@ -66,7 +66,7 @@ export class ExtractionWorker {
         error: "No se encuentra el correo que traía este adjunto.",
       };
     } else {
-      const parsed = await simpleParser(this.#rawStore.open(origin.rawSha256));
+      const parsed = await parseMail(this.#rawStore.open(origin.rawSha256));
       const part =
         parsed.attachments.find(
           (candidate) => createHash("sha256").update(candidate.content).digest("hex") === sha,

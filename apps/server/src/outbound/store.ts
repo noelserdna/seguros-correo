@@ -1,7 +1,7 @@
+import { parseMail } from "../mail/parse.ts";
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { simpleParser } from "mailparser";
 import type { User } from "../auth/sessions.ts";
 import type { Db } from "../db/client.ts";
 import {
@@ -114,7 +114,7 @@ export async function createOutbound(
     .where(and(eq(messages.id, input.sourceMessageId), eq(messages.accountId, account.id)));
   if (!source) throw new OutboundError("not_editable", "El correo original ya no está disponible.");
 
-  const parsed = source.rawSha256 ? await simpleParser(rawStore.open(source.rawSha256)) : null;
+  const parsed = source.rawSha256 ? await parseMail(rawStore.open(source.rawSha256)) : null;
   const inlineImages = new Map<string, InlineImage>();
   for (const part of parsed?.attachments ?? []) {
     if (part.cid)

@@ -1,6 +1,7 @@
+import { parseMail } from "../../mail/parse.ts";
 import { and, asc, desc, eq, gt, isNotNull, isNull, lt, max, or, sql } from "drizzle-orm";
 import type { FastifyPluginAsync } from "fastify";
-import { simpleParser, type ParsedMail } from "mailparser";
+import type { ParsedMail } from "mailparser";
 import { z } from "zod";
 import {
   attachments,
@@ -76,7 +77,7 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
     return message;
   }
 
-  const parseRaw = (sha256: string): Promise<ParsedMail> => simpleParser(rawStore.open(sha256));
+  const parseRaw = (sha256: string): Promise<ParsedMail> => parseMail(rawStore.open(sha256));
 
   // El cuerpo del correo, listo para mostrarse sin riesgo.
   app.get("/messages/:id/html", async (request) => {

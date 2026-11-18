@@ -1,6 +1,7 @@
+import { parseMail } from "./parse.ts";
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
+import type { AddressObject, ParsedMail } from "mailparser";
 import type { Db } from "../db/client.ts";
 import {
   attachments,
@@ -128,7 +129,7 @@ export async function enrichMessage(
   rawStore: RawStore,
   input: { messageId: string; accountId: string; accountEmail: string; rawSha256: string },
 ): Promise<void> {
-  const parsed = await simpleParser(rawStore.open(input.rawSha256));
+  const parsed = await parseMail(rawStore.open(input.rawSha256));
   const data = extractStructured(parsed, input.accountEmail);
   const { addresses, ...columns } = data;
   const bodyClean = cleanBody({
