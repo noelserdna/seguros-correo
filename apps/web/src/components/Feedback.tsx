@@ -38,6 +38,12 @@ export function ToastView({
       role="status"
       className="fixed bottom-6 left-1/2 z-30 flex min-h-11 min-w-[360px] max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-4 rounded-lg bg-ink py-1.5 pr-2 pl-4 text-white shadow-[0_8px_24px_rgba(27,35,48,0.25)]"
     >
+      {toast.busy && (
+        <span
+          aria-hidden
+          className="size-4 shrink-0 animate-spin rounded-full border-2 border-rail-ink border-t-transparent"
+        />
+      )}
       <span className="grow">
         {toast.title}
         {toast.detail && <span className="text-rail-ink"> · {toast.detail}</span>}
@@ -55,6 +61,7 @@ export function ToastView({
       <button
         type="button"
         onClick={onClose}
+        hidden={toast.busy}
         aria-label="Cerrar el aviso"
         className="flex size-[30px] items-center justify-center rounded-md border-0 bg-transparent text-rail-ink hover:bg-rail-active"
       >

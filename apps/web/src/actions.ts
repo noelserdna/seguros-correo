@@ -16,6 +16,8 @@ export type Toast = {
   detail?: string;
   /** Lo que hace «Deshacer» mientras el aviso siga en pantalla. */
   undo?: () => void;
+  /** Algo está en marcha: se muestra girando y sin botón de cerrar. */
+  busy?: boolean;
   /** Tiempo en pantalla, si no es el habitual. */
   ms?: number;
 };

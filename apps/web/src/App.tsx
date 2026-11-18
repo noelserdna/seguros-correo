@@ -166,6 +166,16 @@ function Mailbox({ session }: { session: Session }) {
     if (!state && !error) return;
     // El código es de un solo uso: se quita de la dirección antes de canjearlo.
     window.history.replaceState(null, "", window.location.pathname);
+    if (state && code) {
+      // Canjear el permiso y probar la entrada al buzón tarda unos segundos.
+      showToast({
+        tone: "info",
+        busy: true,
+        title: "Conectando el buzón…",
+        detail: "Comprobando el permiso. Tarda unos segundos.",
+        ms: 90_000,
+      });
+    }
     api
       .oauthComplete({
         state: state ?? undefined,
