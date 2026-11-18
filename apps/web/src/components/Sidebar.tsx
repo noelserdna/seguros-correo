@@ -201,9 +201,9 @@ function ConnectMailbox({ onError }: { onError: (message: string) => void }) {
           key={provider.id}
           type="button"
           onClick={() => connect(provider.id)}
-          className="h-7 rounded-md border border-line-strong bg-panel px-2 text-left text-xs text-ink hover:bg-line-soft"
+          className="h-7 truncate rounded-md border border-line-strong bg-panel px-2 text-left text-xs text-ink hover:bg-line-soft"
         >
-          Con cuenta de {provider.label}
+          Cuenta de {provider.label}
         </button>
       ))}
     </div>

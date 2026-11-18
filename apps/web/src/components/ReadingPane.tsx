@@ -204,11 +204,15 @@ function Toolbar({
         onClick={() => onCompose?.("reply")}
       />
       <ActionButton
+        icon="replyAll"
+        compact
         label="Responder a todos"
         disabled={!message || !onCompose}
         onClick={() => onCompose?.("replyAll")}
       />
       <ActionButton
+        icon="forward"
+        compact
         label="Reenviar"
         disabled={!message || !onCompose}
         onClick={() => onCompose?.("forward")}
