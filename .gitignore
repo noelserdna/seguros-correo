@@ -10,3 +10,7 @@ datos/
 
 # Generado por scripts/dev-up.sh: certificado y cuentas del servidor de correo de pruebas
 docker/mail/config/
+
+# Batería de pruebas de lectura de documentos: se regenera con bench/ocr/generar.py
+bench/ocr/casos/
+bench/ocr/resultados/

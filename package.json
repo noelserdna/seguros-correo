@@ -25,7 +25,8 @@
     "build": "pnpm --filter @correo/web build",
     "web": "pnpm --filter @correo/web dev",
     "reprocesar": "tsx apps/server/scripts/reprocesar.ts",
-    "sembrar": "tsx apps/server/scripts/sembrar.ts"
+    "sembrar": "tsx apps/server/scripts/sembrar.ts",
+    "banco-ocr": "tsx --env-file-if-exists=.env apps/server/scripts/banco-ocr.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
