@@ -8,7 +8,7 @@ import type { ImapFlow } from "imapflow";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { User } from "../src/auth/sessions.ts";
 import { createUser } from "../src/auth/users.ts";
-import { accountAccess } from "../src/db/schema.ts";
+import { accountAccess, events } from "../src/db/schema.ts";
 import { buildApp, CSRF_HEADER, SESSION_COOKIE } from "../src/http/app.ts";
 import type { Account } from "../src/imap/connection.ts";
 import { expedientesPlugin } from "../src/plugins/expedientes/index.ts";
@@ -256,6 +256,19 @@ describe("tramitación", () => {
     expect(draft.subject).toContain(view.case.number);
     view = (await call("POST", `${BASE}/tasks/${task(view, "T2").id}/chased`)).json<View>();
     expect(task(view, "T2").chaseCount).toBe(1);
+    // Enviada desde el redactor, la reclamación se apunta sola.
+    const outboundId = "00000000-0000-4000-8000-000000000001";
+    await call("POST", `${BASE}/tasks/${task(view, "T2").id}/chase-link`, { outboundId });
+    await env.db
+      .insert(events)
+      .values({
+        accountId: account.id,
+        type: "outbound.sent",
+        payload: { outboundId, userId: marta.id },
+      });
+    await host.drain();
+    view = (await call("GET", `${BASE}/cases/${view.case.id}`)).json<View>();
+    expect(task(view, "T2").chaseCount).toBe(2);
 
     // Un tercero del directorio: el perito. Su correo se reconoce y cumple la tarea.
     const perito = (

@@ -176,6 +176,8 @@ export async function setupTramitacion(db: Db): Promise<void> {
       updated_at timestamptz not null default now()
     )`);
   await db.execute(sql`create index if not exists tra_tasks_case on tra_tasks (case_id)`);
+  // Borrador de reclamación en curso: al enviarse, la reclamación se apunta sola.
+  await db.execute(sql`alter table tra_tasks add column if not exists chase_outbound_id uuid`);
   await db.execute(sql`create index if not exists tra_tasks_assignee on tra_tasks (assignee_id)`);
   await db.execute(sql`
     create table if not exists tra_task_deps (

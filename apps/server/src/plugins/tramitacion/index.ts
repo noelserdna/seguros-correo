@@ -17,7 +17,8 @@ import {
   notify,
   type CaseRow,
 } from "../expedientes/index.ts";
-import type { ServerPlugin } from "../host.ts";
+import type { Db, Tx } from "../../db/client.ts";
+import type { MailEvent, ServerPlugin } from "../host.ts";
 import { addBusinessDays, addCalendarDays, dayOf, daysBetween, type Day } from "./days.ts";
 import { assertAcyclic, CycleError, type EngineCase, type EventKind } from "./engine.ts";
 import {
@@ -38,6 +39,7 @@ import {
   todayInSpain,
   waitingLabel,
   type PlanData,
+  type TaskRow,
 } from "./store.ts";
 
 const idParams = z.object({ id: z.uuid() });
@@ -113,6 +115,29 @@ const portfolioQuery = z.object({
   parados: z.coerce.number().int().min(1).max(365).optional(),
 });
 const peopleQuery = z.object({ caseId: z.uuid() });
+const linkBody = z.object({ outboundId: z.uuid() });
+
+/** Apunta una reclamación: suma una y mueve la próxima. */
+async function markChased(
+  db: Db | Tx,
+  task: TaskRow,
+  userId: string | null,
+  outboundId: string | null,
+) {
+  const today = todayInSpain();
+  const next = task.chaseDays ? addBusinessDays(today, task.chaseDays) : addCalendarDays(today, 7);
+  await db.execute(sql`
+    update tra_tasks set chase_count = chase_count + 1, chase_at = ${next}, chase_outbound_id = null,
+           updated_at = now()
+     where id = ${task.id}`);
+  await recordEvent(db, {
+    caseId: task.caseId,
+    taskId: task.id,
+    userId,
+    kind: "reclamada",
+    detail: { next, count: task.chaseCount + 1, outboundId },
+  });
+}
 
 /** Gravedad para ordenar la cartera: lo que más urge, arriba. */
 const SEVERITY: Record<string, number> = {
@@ -137,6 +162,19 @@ export const tramitacionPlugin: ServerPlugin = {
     "Lleva cada expediente como un caso: fases, tareas, plazos, esperas a terceros y un semáforo de salud. Necesita Expedientes.",
   requires: ["expedientes"],
   setup: setupTramitacion,
+  // Cuando sale un correo de reclamación preparado desde una tarea, se apunta.
+  async onEvent(event: MailEvent, db: Db) {
+    if (event.type !== "outbound.sent") return;
+    const payload = event.payload as { outboundId?: string; userId?: string } | null;
+    if (!payload?.outboundId) return;
+    const found = await db.execute<{ id: string }>(
+      sql`select id from tra_tasks where chase_outbound_id = ${payload.outboundId}`,
+    );
+    for (const row of found.rows) {
+      const task = await loadTask(db, row.id);
+      if (task) await markChased(db, task, payload.userId ?? null, payload.outboundId);
+    }
+  },
   routes: async (app, { context }) => {
     const { db } = context;
 
@@ -609,28 +647,28 @@ export const tramitacionPlugin: ServerPlugin = {
       };
     });
 
-    // Apuntar que se ha reclamado: la próxima reclamación se mueve.
+    // Enlaza el borrador de la reclamación: cuando salga, se apunta solo.
+    app.post("/tasks/:id/chase-link", async (request) => {
+      const { user } = requireSession(request);
+      const { id } = idParams.parse(request.params);
+      const { outboundId } = linkBody.parse(request.body);
+      const { task } = await loadOwnTask(user.id, id);
+      if (task.status !== "esperando")
+        throw new HttpError(409, "not_waiting", "Esta tarea no está esperando a nadie.");
+      await db.execute(
+        sql`update tra_tasks set chase_outbound_id = ${outboundId} where id = ${id}`,
+      );
+      return { ok: true };
+    });
+
+    // Apuntar a mano que se ha reclamado (por teléfono, por ejemplo).
     app.post("/tasks/:id/chased", async (request) => {
       const { user } = requireSession(request);
       const { id } = idParams.parse(request.params);
       const { task, kase } = await loadOwnTask(user.id, id);
       if (task.status !== "esperando")
         throw new HttpError(409, "not_waiting", "Esta tarea no está esperando a nadie.");
-      const today = todayInSpain();
-      const next = task.chaseDays
-        ? addBusinessDays(today, task.chaseDays)
-        : addCalendarDays(today, 7);
-      await db.transaction(async (tx) => {
-        await tx.execute(sql`
-          update tra_tasks set chase_count = chase_count + 1, chase_at = ${next}, updated_at = now() where id = ${id}`);
-        await recordEvent(tx, {
-          caseId: task.caseId,
-          taskId: id,
-          userId: user.id,
-          kind: "reclamada",
-          detail: { next, count: task.chaseCount + 1 },
-        });
-      });
+      await db.transaction((tx) => markChased(tx, task, user.id, null));
       await touched(kase, user.id, "task_chased", { taskId: id });
       return viewOf(user.id, task.caseId);
     });
