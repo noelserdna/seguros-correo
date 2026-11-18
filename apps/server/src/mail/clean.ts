@@ -56,7 +56,7 @@ const tidy = (text: string) =>
   text
     // Espacios duros y caracteres invisibles que deja la maquetación de los boletines.
     .replace(/[\u00a0\u2007\u202f]/g, " ")
-    .replace(/[\u200b-\u200d\u2060\ufeff\u00ad\u034f]/g, "")
+    .replace(/\u200b|\u200c|\u200d|\u2060|\ufeff|\u00ad|\u034f/g, "")
     .replace(/\r\n/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
     // Líneas que solo traen separadores sueltos («-», «|»), restos de tablas de maquetación.
