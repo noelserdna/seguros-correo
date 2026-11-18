@@ -231,6 +231,8 @@ export function TramitarAction({ message }: { message: MessageDetail }) {
   const cases = useByMessage(message.id);
   const [opening, setOpening] = useState(false);
   const first = cases.data?.cases[0];
+  // Hasta saber si el correo ya está en un expediente, no se ofrece abrir otro.
+  if (cases.isPending) return null;
   if (first) {
     return (
       <button
