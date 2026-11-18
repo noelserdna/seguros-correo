@@ -20,7 +20,10 @@ export async function syncFolderList({ db, client, account }: SyncContext): Prom
   for (const entry of remote) {
     const flags = [...(entry.flags ?? [])].map((flag) => flag.toLowerCase());
     const selectable = !flags.some((flag) => NOT_SELECTABLE.has(flag));
-    const virtual = VIRTUAL.has((entry.specialUse ?? "").toLowerCase());
+    // El papel puede venir como uso especial o solo entre los atributos (\\Important).
+    const virtual =
+      VIRTUAL.has((entry.specialUse ?? "").toLowerCase()) ||
+      flags.some((flag) => VIRTUAL.has(flag));
     const values = {
       delimiter: entry.delimiter || "/",
       specialUse: detectSpecialUse(entry),

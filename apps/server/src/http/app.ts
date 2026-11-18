@@ -154,10 +154,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(oauthRoutes, { prefix: "/api", context });
 
   if (deps.webDir && existsSync(deps.webDir)) {
-    await app.register(fastifyStatic, { root: deps.webDir, wildcard: false });
+    // Los ficheros se buscan en disco en cada petición: tras recompilar la interfaz no hay que reiniciar.
+    await app.register(fastifyStatic, { root: deps.webDir });
     // La interfaz es una sola página: cualquier dirección que no sea de la API la devuelve.
     app.setNotFoundHandler((request, reply) => {
-      if (request.method !== "GET" || request.url.startsWith("/api/")) {
+      // Un fichero que no existe (por ejemplo, un script de una versión anterior) es un 404:
+      // devolver la página en su lugar deja la pantalla en blanco sin ningún aviso.
+      const isFile = /\.[a-z0-9]+$/i.test(request.url.split("?")[0] ?? "");
+      if (request.method !== "GET" || request.url.startsWith("/api/") || isFile) {
         return reply.status(404).send({ error: "not_found", message: "No encontrado." });
       }
       return reply.sendFile("index.html");
