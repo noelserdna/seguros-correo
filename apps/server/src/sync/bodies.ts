@@ -1,14 +1,11 @@
-import { createHash } from "node:crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { simpleParser } from "mailparser";
-import { attachments, folderMessages, folders, messages } from "../db/schema.ts";
+import { folderMessages, folders, messages } from "../db/schema.ts";
+import { enrichMessage } from "../mail/enrich.ts";
 import type { SyncContext } from "./types.ts";
-
-const SNIPPET_LENGTH = 200;
 
 /**
  * Descarga el original de los correos que aún no lo tienen, de más reciente a más
- * antiguo: lo guarda en disco, extrae el texto y da de alta los adjuntos.
+ * antiguo: lo guarda en disco y extrae sus datos estructurados.
  * Devuelve cuántos ha descargado.
  */
 export async function downloadBodies(ctx: SyncContext): Promise<number> {
@@ -54,34 +51,11 @@ export async function downloadBodies(ctx: SyncContext): Promise<number> {
         // Si ya no está (lo movieron mientras tanto), se reintentará desde su nueva carpeta.
         if (!download.content) continue;
         const { sha256 } = await rawStore.save(download.content);
-        const parsed = await simpleParser(rawStore.open(sha256));
-        const text = parsed.text ?? "";
-
-        await db.transaction(async (tx) => {
-          await tx
-            .update(messages)
-            .set({
-              rawSha256: sha256,
-              bodyText: text,
-              snippet: text.replace(/\s+/g, " ").trim().slice(0, SNIPPET_LENGTH),
-              hasAttachments: parsed.attachments.some((part) => !part.related),
-            })
-            .where(eq(messages.id, row.messageId));
-          await tx.delete(attachments).where(eq(attachments.messageId, row.messageId));
-          if (parsed.attachments.length > 0) {
-            await tx.insert(attachments).values(
-              parsed.attachments.map((part, position) => ({
-                messageId: row.messageId,
-                position,
-                filename: part.filename ?? null,
-                contentType: part.contentType,
-                size: part.size,
-                contentId: part.cid ?? null,
-                inline: part.related === true,
-                contentSha256: createHash("sha256").update(part.content).digest("hex"),
-              })),
-            );
-          }
+        await enrichMessage(db, rawStore, {
+          messageId: row.messageId,
+          accountId: account.id,
+          accountEmail: account.email,
+          rawSha256: sha256,
         });
         downloaded++;
       }

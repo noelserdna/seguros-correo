@@ -17,6 +17,9 @@ const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const searchQuery = z.object({
   q: z.string().trim().min(1).max(200),
   from: z.string().trim().max(200).optional(),
+  /** Persona o dominio que aparece en el correo, en cualquier papel. */
+  with: z.string().trim().max(200).optional(),
+  direction: z.enum(["in", "out"]).optional(),
   since: day.optional(),
   until: day.optional(),
   attachments: z.enum(["0", "1"]).default("0"),
@@ -198,6 +201,13 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
       const pattern = `%${query.from.replace(/[%_\\]/g, "\\$&")}%`;
       filters.push(sql`(m.from_name ilike ${pattern} or m.from_address ilike ${pattern})`);
     }
+    if (query.with) {
+      const pattern = `%${query.with.toLowerCase().replace(/[%_\\]/g, "\\$&")}%`;
+      filters.push(sql`exists (select 1 from message_addresses a
+                                where a.message_id = m.id
+                                  and (a.address like ${pattern} or lower(a.name) like ${pattern}))`);
+    }
+    if (query.direction) filters.push(sql`m.direction = ${query.direction}`);
     if (query.since) filters.push(sql`m.internal_date >= ${query.since}::date`);
     if (query.until) filters.push(sql`m.internal_date < (${query.until}::date + 1)`);
     if (query.attachments === "1") filters.push(sql`m.has_attachments is true`);

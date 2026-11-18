@@ -78,6 +78,23 @@ Lo que se hace aquí se ve en Outlook, y al revés.
 - **Firma por usuario y buzón,** en texto sin formato.
 - **Lo que manda el editor pasa por el mismo filtro que el correo entrante** antes de salir.
 
+## Qué se guarda de cada correo
+
+Un correo es un dato a medias estructurado. Se guarda en tres capas:
+
+1. **El original, intacto,** en disco (`datos/raw/`). Cualquier dato que se quiera más adelante se puede sacar de aquí: `pnpm reprocesar --todos` vuelve a procesar todos los correos sin descargar nada.
+2. **Lo que tiene forma fija,** en la base, extraído al llegar:
+   - cabeceras habituales, conversación, carpeta y marcas;
+   - **participantes** (`message_addresses`): una fila por correo, dirección y papel (de, para, copia, copia oculta, responder a), con el dominio aparte. Responde a «todo lo cruzado con esta persona o con este dominio»;
+   - **sentido** (recibido o enviado), **prioridad**, si es una **respuesta automática**, y **todas las cabeceras** en un campo flexible;
+   - nombre, tipo y tamaño de cada adjunto.
+     La búsqueda de texto incluye asunto, remitente, destinatarios, nombres de adjuntos y cuerpo, y se puede filtrar por participante y por sentido.
+3. **Los datos de negocio** (`message_facts`): número de siniestro, póliza, matrícula, tipo de correo… El núcleo no decide cuáles ni cómo se obtienen; solo los guarda ligados al correo, cada uno con su origen: de qué parte salió, el texto en el que se apoya, quién lo produjo (regla, modelo o persona), con qué confianza y si alguien lo ha revisado.
+
+Cómo se rellenan los datos de negocio está por decidir, y es donde entrará la IA. Lo que ya existe es el sitio y el enganche: al terminar de procesar un correo se emite el evento `message.enriched`, y quien lo escuche puede escribir datos con `replaceFacts`, que sustituye los suyos sin tocar los de otros. Una persona también puede añadirlos o quitarlos, y se pueden pedir todos los correos que comparten un dato.
+
+El texto libre no se vectoriza. Si llega a hacer falta, se puede hacer en el mismo Postgres.
+
 ## Plugins
 
 Un plugin añade funciones sin tocar el núcleo. El de demostración (`expedientes`) existe solo para probar los enganches; no es el módulo de siniestros.

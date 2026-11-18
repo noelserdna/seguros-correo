@@ -112,6 +112,19 @@ export type QueuedAction = {
 };
 type ActionReply = { action: QueuedAction | null };
 
+/** Dato de negocio ligado a un correo, con su origen. */
+export type MessageFact = {
+  id: string;
+  kind: string;
+  value: string;
+  source: string | null;
+  evidence: string | null;
+  method: "rule" | "model" | "user";
+  extractor: string;
+  confidence: number | null;
+  confirmed: boolean;
+};
+
 export type ThreadMessage = {
   id: string;
   messageIdHeader: string | null;
@@ -276,11 +289,14 @@ export const api = {
     post<{ email: string }>("/admin/oauth/complete", params),
   oauthStart: (provider: string) => post<{ url: string }>(`/admin/oauth/${provider}/start`, {}),
   undo: (actionId: string) => post<ActionReply>(`/actions/${actionId}/undo`, {}),
+  facts: (id: string) =>
+    request<{ facts: MessageFact[] }>(`/messages/${id}/facts`).then((data) => data.facts),
   thread: (id: string) =>
     request<{ messages: ThreadMessage[] }>(`/threads/${id}`).then((data) => data.messages),
   search: (filters: SearchFilters) => {
     const params = new URLSearchParams({ q: filters.q, limit: "100" });
-    if (filters.from) params.set("from", filters.from);
+    // Persona o dominio en cualquier papel: remitente, destinatario o copia.
+    if (filters.from) params.set("with", filters.from);
     if (filters.since) params.set("since", filters.since);
     if (filters.until) params.set("until", filters.until);
     if (filters.attachments) params.set("attachments", "1");

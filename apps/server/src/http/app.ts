@@ -19,6 +19,7 @@ import { adminRoutes } from "./routes/admin.ts";
 import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { contentRoutes } from "./routes/content.ts";
+import { factRoutes } from "./routes/facts.ts";
 import { oauthRoutes } from "./routes/oauth.ts";
 import { outboundRoutes } from "./routes/outbound.ts";
 import { mailRoutes } from "./routes/mail.ts";
@@ -153,6 +154,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(mailRoutes, { prefix: "/api", context });
   await app.register(contentRoutes, { prefix: "/api", context });
   await app.register(actionRoutes, { prefix: "/api", context });
+  await app.register(factRoutes, { prefix: "/api", context });
   await app.register(outboundRoutes, { prefix: "/api", context });
   await app.register(oauthRoutes, { prefix: "/api", context });
   for (const plugin of deps.plugins ?? []) {

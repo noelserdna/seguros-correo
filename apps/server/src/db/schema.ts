@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  real,
   pgTable,
   primaryKey,
   text,
@@ -162,6 +163,20 @@ export const messages = pgTable(
       .notNull()
       .default(sql`'{}'`),
     /** Huella del original; se rellena al descargar el cuerpo. Localiza el .eml en disco. */
+    replyTo: jsonb("reply_to").$type<Address[]>().notNull().default([]),
+    /** Copia oculta. Solo se conoce en los correos enviados desde el propio buzón. */
+    bcc: jsonb("bcc").$type<Address[]>().notNull().default([]),
+    /** Enviado desde este buzón (`out`) o recibido (`in`). */
+    direction: text("direction").$type<"in" | "out">(),
+    /** Respuesta automática (fuera de la oficina, acuse…). */
+    autoReply: boolean("auto_reply").notNull().default(false),
+    priority: text("priority").$type<"high" | "low">(),
+    /** Todas las cabeceras del original, por si hace falta alguna que hoy no se usa. */
+    headers: jsonb("headers").$type<Record<string, string[]>>(),
+    /** Destinatarios y nombres de adjuntos, para que la búsqueda de texto los encuentre. */
+    searchExtra: text("search_extra").notNull().default(""),
+    /** Cuándo se extrajeron los datos estructurados del original. */
+    enrichedAt: timestamptz("enriched_at"),
     rawSha256: text("raw_sha256"),
     bodyText: text("body_text"),
     snippet: text("snippet"),
@@ -247,6 +262,7 @@ export type EventType =
   | "message.removed"
   | "action.queued"
   | "action.failed"
+  | "message.enriched"
   | "account.changed"
   | "outbound.changed"
   | "outbound.sent"
@@ -313,6 +329,84 @@ export const mailActions = pgTable(
     finishedAt: timestamptz("finished_at"),
   },
   (table) => [index("mail_actions_queue").on(table.accountId, table.state, table.createdAt)],
+);
+
+export type AddressRole = "from" | "to" | "cc" | "bcc" | "reply_to";
+
+/**
+ * Quién aparece en cada correo y en qué papel. Una fila por correo, dirección y papel,
+ * para responder rápido a «todo lo cruzado con esta persona» o «con este dominio».
+ */
+export const messageAddresses = pgTable(
+  "message_addresses",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    role: text("role").$type<AddressRole>().notNull(),
+    /** En minúsculas. */
+    address: text("address").notNull(),
+    domain: text("domain").notNull(),
+    name: text("name").notNull().default(""),
+  },
+  (table) => [
+    index("message_addresses_message").on(table.messageId),
+    index("message_addresses_address").on(table.accountId, table.address),
+    index("message_addresses_domain").on(table.accountId, table.domain),
+  ],
+);
+
+export type FactMethod = "rule" | "model" | "user";
+
+/**
+ * Datos de negocio ligados a un correo: número de siniestro, póliza, matrícula, tipo de
+ * correo… El núcleo no decide cuáles ni cómo se obtienen; solo los guarda con su origen.
+ * Los escribe quien toque (una regla, un modelo, una persona) y cada dato dice de dónde
+ * salió, para poder revisarlo, corregirlo o rehacerlo con un método mejor.
+ */
+export const messageFacts = pgTable(
+  "message_facts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    /** Qué es: `siniestro`, `poliza`, `matricula`… Lo define quien lo escribe. */
+    kind: text("kind").notNull(),
+    /** Valor normalizado, el que se usa para buscar y agrupar. */
+    value: text("value").notNull(),
+    /** Datos adicionales del valor, con la forma que necesite cada tipo. */
+    detail: jsonb("detail").$type<Record<string, unknown>>(),
+    /** Parte del correo de la que salió: `subject`, `body`, `attachment:<nombre>`… */
+    source: text("source"),
+    /** Texto literal en el que se apoya, para poder enseñárselo a quien lo revise. */
+    evidence: text("evidence"),
+    method: text("method").$type<FactMethod>().notNull(),
+    /** Quién lo produjo: nombre de la regla, del modelo y su versión, o del plugin. */
+    extractor: text("extractor").notNull(),
+    /** Entre 0 y 1, cuando el método da una estimación. */
+    confidence: real("confidence"),
+    /** Una persona lo ha dado por bueno (o lo ha escrito ella). */
+    confirmedBy: uuid("confirmed_by"),
+    confirmedAt: timestamptz("confirmed_at"),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex("message_facts_unique").on(
+      table.messageId,
+      table.kind,
+      table.value,
+      table.extractor,
+    ),
+    index("message_facts_lookup").on(table.accountId, table.kind, table.value),
+  ],
 );
 
 /** Cómo firma cada usuario cuando escribe desde un buzón. */

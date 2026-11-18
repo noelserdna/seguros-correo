@@ -39,6 +39,12 @@ export function ContextPanel({
     enabled: Boolean(message),
   });
 
+  const facts = useQuery({
+    queryKey: ["message", message?.id, "facts"],
+    queryFn: () => api.facts(message!.id),
+    enabled: Boolean(message),
+  });
+
   return (
     <aside
       aria-label="Contexto del correo"
@@ -118,6 +124,31 @@ export function ContextPanel({
               </button>
             ))}
           </Section>
+
+          {facts.data && facts.data.length > 0 && (
+            <Section title="Datos del correo">
+              <dl className="m-0 flex flex-col gap-1.5 text-xs">
+                {facts.data.map((fact) => (
+                  <div key={fact.id} className="flex gap-2">
+                    <dt className="w-24 shrink-0 text-ink-2">{fact.kind.replace(/_/g, " ")}</dt>
+                    <dd
+                      className="m-0 min-w-0 grow font-semibold break-words"
+                      title={
+                        fact.method === "user"
+                          ? "Escrito por una persona"
+                          : `Extraído automáticamente (${fact.extractor})${fact.evidence ? `: «${fact.evidence}»` : ""}`
+                      }
+                    >
+                      {fact.value}
+                      {!fact.confirmed && (
+                        <span className="font-normal text-ink-2"> · sin revisar</span>
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </Section>
+          )}
 
           {/* Hueco para plugins: cada módulo añade aquí su sección. */}
           {plugins.map(

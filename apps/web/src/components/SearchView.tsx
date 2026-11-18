@@ -93,12 +93,13 @@ export function SearchView({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-xs">
-            De
+            Con
             <input
               type="text"
               value={url.from}
               onChange={(event) => set({ from: event.target.value })}
-              placeholder="nombre o dirección"
+              placeholder="persona o dominio"
+              title="Aparece en el correo como remitente, destinatario o copia"
               className={`${field} w-40`}
             />
           </label>

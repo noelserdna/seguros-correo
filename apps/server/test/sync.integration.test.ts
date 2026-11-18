@@ -57,11 +57,14 @@ afterEach(async () => {
 });
 
 const allMessages = () => env.db.select().from(messages).orderBy(asc(messages.internalDate));
-/** Eventos de correo, en orden. El aviso de «buzón actualizado» es solo para las pantallas. */
+/**
+ * Eventos de correo, en orden. Se dejan fuera los avisos internos: «buzón actualizado»
+ * (para las pantallas) y «correo listo para procesar» (para quien extrae datos).
+ */
 const eventTypes = async () =>
   (await env.db.select().from(events).orderBy(asc(events.id)))
     .map((event) => event.type)
-    .filter((type) => type !== "account.changed");
+    .filter((type) => type !== "account.changed" && type !== "message.enriched");
 
 const screenNotices = async () =>
   (await env.db.select().from(events)).filter((event) => event.type === "account.changed").length;

@@ -182,6 +182,11 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         /** El cuerpo aún no se ha descargado del servidor. */
         bodyPending: message.rawSha256 === null,
         hasAttachments: message.hasAttachments,
+        replyTo: message.replyTo,
+        bcc: message.bcc,
+        direction: message.direction,
+        autoReply: message.autoReply,
+        priority: message.priority,
         /** Ya no está en el buzón del servidor, pero se conserva en nuestro archivo. */
         removedFromServerAt: message.removedFromServerAt,
         locations,

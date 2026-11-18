@@ -23,7 +23,8 @@
     "servidor": "tsx apps/server/src/main.ts",
     "usuario": "tsx apps/server/scripts/usuario.ts",
     "build": "pnpm --filter @correo/web build",
-    "web": "pnpm --filter @correo/web dev"
+    "web": "pnpm --filter @correo/web dev",
+    "reprocesar": "tsx apps/server/scripts/reprocesar.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
