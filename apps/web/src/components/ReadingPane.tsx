@@ -1,6 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { api, ApiError, attachmentUrl, type Attachment, type MessageDetail } from "../api.ts";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { pickLocation, type MailActions } from "../actions.ts";
+import {
+  api,
+  ApiError,
+  attachmentUrl,
+  type Attachment,
+  type MessageDetail,
+  type MessageLocation,
+} from "../api.ts";
 import {
   displayName,
   fileKind,
@@ -10,7 +18,7 @@ import {
   formatSize,
   initials,
 } from "../format.ts";
-import { locationName, uniqueByHeader } from "../folders.ts";
+import { folderRows, locationName, uniqueByHeader } from "../folders.ts";
 import { EmailBody } from "./EmailBody.tsx";
 import { Icon, type IconName } from "./Icon.tsx";
 
@@ -33,18 +41,198 @@ function ToolButton({ icon, label, text }: { icon?: IconName; label: string; tex
   );
 }
 
-/** Barra de acciones. En esta fase solo reserva su sitio; el extremo derecho queda para plugins. */
-function Toolbar() {
+function ActionButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  pressed,
+  filled,
+  tone = "",
+  expanded,
+}: {
+  icon: IconName;
+  label: string;
+  onClick: () => void;
+  disabled: boolean;
+  pressed?: boolean;
+  filled?: boolean;
+  tone?: string;
+  expanded?: boolean;
+}) {
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1 border-b border-line px-3">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={pressed}
+      aria-expanded={expanded}
+      aria-haspopup={expanded === undefined ? undefined : "menu"}
+      className={`flex h-[30px] items-center gap-1.5 rounded-md border-0 px-2.5 whitespace-nowrap disabled:opacity-55 ${
+        expanded
+          ? "bg-accent-soft font-semibold text-accent-strong"
+          : `bg-transparent enabled:hover:bg-ground ${tone || "text-ink"}`
+      }`}
+    >
+      <Icon name={icon} filled={filled} />
+      {label}
+    </button>
+  );
+}
+
+/** Menú con las carpetas del buzón a las que se puede mover el correo. */
+function MoveMenu({
+  accountId,
+  currentFolderId,
+  onPick,
+  onClose,
+}: {
+  accountId: string;
+  currentFolderId: string;
+  onPick: (target: { id: string; name: string }) => void;
+  onClose: () => void;
+}) {
+  const menu = useRef<HTMLDivElement>(null);
+  const folders = useQuery({
+    queryKey: ["folders", accountId],
+    queryFn: () => api.folders(accountId),
+  });
+  const rows = folderRows(folders.data ?? []);
+
+  useEffect(() => {
+    menu.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    const onDown = (event: MouseEvent) => {
+      if (!menu.current?.parentElement?.contains(event.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [onClose, rows.length]);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const options = [
+      ...(menu.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []),
+    ];
+    const index = options.indexOf(document.activeElement as HTMLButtonElement);
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    options[(index + step + options.length) % options.length]?.focus();
+  };
+
+  return (
+    <div
+      ref={menu}
+      role="menu"
+      aria-label="Mover a"
+      onKeyDown={onKeyDown}
+      className="absolute top-[34px] left-0 z-20 flex max-h-[420px] w-60 flex-col gap-px overflow-y-auto rounded-lg border border-line-strong bg-panel p-1.5 shadow-[0_8px_24px_rgba(27,35,48,0.14)]"
+    >
+      <div className="px-2 pt-1 pb-1.5 text-[11px] font-semibold tracking-[0.04em] text-ink-2 uppercase">
+        Mover a
+      </div>
+      {folders.isLoading && <div className="px-2 py-1.5 text-ink-2">Cargando carpetas…</div>}
+      {rows.map(({ folder, name, depth }) => {
+        const here = folder.id === currentFolderId;
+        return (
+          <button
+            key={folder.id}
+            type="button"
+            role="menuitem"
+            disabled={here}
+            onClick={() => onPick({ id: folder.id, name })}
+            style={{ paddingLeft: 8 + depth * 20 }}
+            className="flex h-[30px] shrink-0 items-center rounded-md border-0 bg-transparent pr-2 text-left text-ink hover:bg-accent-soft focus-visible:bg-accent-soft disabled:text-ink-2 disabled:hover:bg-transparent"
+          >
+            <span className="min-w-0 grow truncate">{name}</span>
+            {here && <span className="text-[11px]">aquí está</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Barra de acciones del correo abierto. El extremo derecho queda para plugins. */
+function Toolbar({
+  message,
+  location,
+  actions,
+}: {
+  message: MessageDetail | undefined;
+  location: MessageLocation | null;
+  actions: MailActions | undefined;
+}) {
+  const [moving, setMoving] = useState(false);
+  const closeMenu = useCallback(() => setMoving(false), []);
+  useEffect(() => setMoving(false), [message?.id]);
+
+  const off = !message || !location || !actions;
+  const flagged = Boolean(location?.flags.includes("\\Flagged"));
+  const unread = Boolean(location && !location.flags.includes("\\Seen"));
+  const act = (run: (m: MessageDetail, l: MessageLocation, a: MailActions) => void) => () => {
+    if (message && location && actions) run(message, location, actions);
+  };
+
+  return (
+    <div className="@container flex h-11 shrink-0 items-center gap-1 border-b border-line px-3">
       <ToolButton icon="reply" label="Responder" text />
-      <ToolButton label="Responder a todos" text />
-      <ToolButton label="Reenviar" text />
+      <span className="hidden @3xl:flex">
+        <ToolButton label="Responder a todos" text />
+        <ToolButton label="Reenviar" text />
+      </span>
       <span className="mx-1 h-5 w-px bg-line" />
-      <ToolButton icon="move" label="Mover a carpeta" />
-      <ToolButton icon="flag" label="Poner bandera" />
-      <ToolButton icon="mail" label="Marcar como no leído" />
-      <ToolButton icon="trash" label="Borrar del buzón" />
+      <span className="relative">
+        <ActionButton
+          icon="move"
+          label="Mover"
+          disabled={off}
+          expanded={moving}
+          onClick={() => setMoving((open) => !open)}
+        />
+        {moving && message && location && (
+          <MoveMenu
+            accountId={message.accountId}
+            currentFolderId={location.folderId}
+            onClose={closeMenu}
+            onPick={(target) => {
+              setMoving(false);
+              actions?.move(message, location, target);
+            }}
+          />
+        )}
+      </span>
+      <ActionButton
+        icon="flag"
+        label={flagged ? "Con bandera" : "Bandera"}
+        disabled={off}
+        pressed={flagged}
+        filled={flagged}
+        tone={flagged ? "font-semibold text-flag" : ""}
+        onClick={act((m, l, a) =>
+          a.setFlags(m, l.folderId, flagged ? [] : ["\\Flagged"], flagged ? ["\\Flagged"] : []),
+        )}
+      />
+      <ActionButton
+        icon="mail"
+        label="No leído"
+        disabled={off}
+        pressed={unread}
+        tone={unread ? "font-semibold text-accent-strong" : ""}
+        onClick={act((m, l, a) =>
+          a.setFlags(m, l.folderId, unread ? ["\\Seen"] : [], unread ? [] : ["\\Seen"]),
+        )}
+      />
+      <ActionButton
+        icon="trash"
+        label="Borrar"
+        disabled={off}
+        onClick={act((m, l, a) => a.remove(m, l))}
+      />
       <div className="grow" />
       <ToolButton icon="print" label="Imprimir" />
     </div>
@@ -251,8 +439,14 @@ export function ReadingPane({
   messageId,
   onSelect,
   onLoaded,
+  actions,
+  folderId,
 }: {
   messageId: string | null;
+  /** Acciones sobre el correo. Sin ellas (en el archivo) la barra queda desactivada. */
+  actions?: MailActions;
+  /** Carpeta que se está viendo: las acciones se aplican al correo en ella. */
+  folderId: string | null;
   onSelect: (id: string) => void;
   onLoaded?: (message: MessageDetail) => void;
 }) {
@@ -280,7 +474,11 @@ export function ReadingPane({
   const missing = message.error instanceof ApiError && message.error.status === 404;
   return (
     <main className="flex min-w-0 grow flex-col bg-panel">
-      <Toolbar />
+      <Toolbar
+        message={message.data}
+        location={message.data ? pickLocation(message.data, folderId) : null}
+        actions={actions}
+      />
       {message.isLoading && (
         <div role="status" className="p-6 text-ink-2">
           Abriendo el correo…

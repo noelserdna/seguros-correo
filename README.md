@@ -9,6 +9,7 @@ Estado: validación técnica.
 - Fase 2, datos y sincronización de solo lectura: hecha.
 - Fase 3a, usuarios, sesiones, permisos por buzón y API de lectura: hecha.
 - Fase 3b, interfaz web de lectura (carpetas, lista, lectura segura, adjuntos, búsqueda, archivo y avisos en vivo): hecha.
+- Fase 4, acciones con reflejo (leído, bandera, mover, borrar y deshacer): hecha.
 
 ## Requisitos
 
@@ -54,7 +55,17 @@ React, Vite y Tailwind, sin dependencias de terceros en tiempo de ejecución (la
 - **Avisos en vivo:** lo que cambia en el servidor de correo aparece sin recargar.
 - **Huecos para plugins** ya reservados: riel de módulos, fila de la lista, barra de acciones y panel de contexto.
 
-Las acciones (responder, mover, borrar) aparecen desactivadas: llegan en las fases siguientes.
+Responder y reenviar aparecen desactivados: llegan en la fase siguiente.
+
+## Acciones con reflejo
+
+Lo que se hace aquí se ve en Outlook, y al revés.
+
+- **Leído, bandera, mover y borrar.** Abrir un correo lo marca como leído. Borrar lo envía a la Papelera; borrar desde la Papelera lo quita del buzón, previa confirmación, y el correo se conserva en nuestro archivo.
+- **Cola por buzón.** Cada acción cambia la pantalla al instante y queda en cola (`mail_actions`); se aplica en el servidor de correo al principio del siguiente ciclo, normalmente en uno o dos segundos. Si no hay conexión, espera.
+- **Deshacer.** Mover y borrar a la Papelera se pueden deshacer: si aún no ha salido, se cancela; si ya se hizo, se pide el movimiento contrario. El correo conserva su identidad.
+- **Si otro programa se adelanta.** Cuando el correo ya no está donde se esperaba, la acción se rechaza, la pantalla vuelve al estado real y se avisa a quien la pidió.
+- **Auditoría.** Cada acción queda anotada con su usuario.
 
 ## Cómo funciona la sincronización
 

@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, setCsrfToken, type MessageDetail, type Session } from "./api.ts";
 import { ContextPanel } from "./components/ContextPanel.tsx";
 import { Icon } from "./components/Icon.tsx";
@@ -9,6 +9,8 @@ import { ReadingPane } from "./components/ReadingPane.tsx";
 import { SearchView } from "./components/SearchView.tsx";
 import { FolderPanel, Rail } from "./components/Sidebar.tsx";
 import { TopBar } from "./components/TopBar.tsx";
+import { pickLocation, useMailActions } from "./actions.ts";
+import { ConfirmDelete, ToastView } from "./components/Feedback.tsx";
 import { folderName } from "./folders.ts";
 import { navigate, useUrlState } from "./url-state.ts";
 
@@ -26,7 +28,9 @@ function useWide(): boolean {
 }
 
 /** Escucha los avisos del servidor y refresca lo que haya en pantalla. */
-function useLiveUpdates(): boolean {
+function useLiveUpdates(onFailed: (message: string, userId: string | null) => void): boolean {
+  const failed = useRef(onFailed);
+  failed.current = onFailed;
   const queryClient = useQueryClient();
   const [online, setOnline] = useState(true);
   useEffect(() => {
@@ -34,7 +38,18 @@ function useLiveUpdates(): boolean {
     let timer: ReturnType<typeof setTimeout> | null = null;
     source.onopen = () => setOnline(true);
     source.onerror = () => setOnline(false);
-    source.onmessage = () => {
+    source.onmessage = (event: MessageEvent<string>) => {
+      try {
+        const data = JSON.parse(event.data) as {
+          type: string;
+          payload?: { message?: string; userId?: string | null };
+        };
+        if (data.type === "action.failed") {
+          failed.current(data.payload?.message ?? "", data.payload?.userId ?? null);
+        }
+      } catch {
+        // Un aviso ilegible no impide refrescar.
+      }
       // Varios cambios seguidos provocan un solo refresco.
       if (timer) return;
       timer = setTimeout(() => {
@@ -55,7 +70,6 @@ function useLiveUpdates(): boolean {
 function Mailbox({ session }: { session: Session }) {
   const url = useUrlState();
   const wide = useWide();
-  const online = useLiveUpdates();
   const [contextOpen, setContextOpen] = useState(false);
   const [opened, setOpened] = useState<MessageDetail | null>(null);
 
@@ -101,7 +115,58 @@ function Mailbox({ session }: { session: Session }) {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  const select = useCallback((id: string) => navigate({ messageId: id }), []);
+  const select = useCallback((id: string | null) => navigate({ messageId: id }), []);
+  const actions = useMailActions({ items, onSelect: select });
+  const { showToast, setFlags, remove, undo } = actions;
+  const userId = session.user.id;
+  const online = useLiveUpdates(
+    useCallback(
+      (message: string, byUserId: string | null) => {
+        // Solo se avisa a quien pidió la acción; a los demás les basta con ver el estado real.
+        if (byUserId !== userId) return;
+        showToast({ tone: "error", title: "No se ha podido completar la acción", detail: message });
+      },
+      [userId, showToast],
+    ),
+  );
+  const canAct = url.view !== "archive";
+
+  // Abrir un correo lo marca como leído, aquí y en el servidor de correo.
+  const autoRead = useRef<string | null>(null);
+  useEffect(() => {
+    if (!canAct || !opened || opened.id !== url.messageId || autoRead.current === opened.id) return;
+    autoRead.current = opened.id;
+    const location = pickLocation(opened, url.folderId);
+    if (location && !location.flags.includes("\\Seen")) {
+      setFlags(opened, location.folderId, ["\\Seen"], []);
+    }
+  }, [canAct, opened, url.messageId, url.folderId, setFlags]);
+  useEffect(() => {
+    if (!url.messageId) autoRead.current = null;
+  }, [url.messageId]);
+
+  // Supr borra el correo abierto; Ctrl + Z deshace mientras el aviso sigue en pantalla.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.matches("input, textarea, select, [contenteditable]") ||
+        target?.closest("dialog")
+      ) {
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        undo();
+        return;
+      }
+      if (event.key !== "Delete" || !canAct || !opened || opened.id !== url.messageId) return;
+      const location = pickLocation(opened, url.folderId);
+      if (location) remove(opened, location);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canAct, opened, url.messageId, url.folderId, remove, undo]);
   const onLoaded = useCallback((message: MessageDetail) => setOpened(message), []);
   useEffect(() => {
     if (!url.messageId) setOpened(null);
@@ -177,7 +242,13 @@ function Mailbox({ session }: { session: Session }) {
         )}
 
         {(url.view !== "search" || url.messageId) && (
-          <ReadingPane messageId={url.messageId} onSelect={select} onLoaded={onLoaded} />
+          <ReadingPane
+            messageId={url.messageId}
+            onSelect={select}
+            onLoaded={onLoaded}
+            actions={canAct ? actions : undefined}
+            folderId={url.view === "mail" ? url.folderId : null}
+          />
         )}
 
         {contextOpen && (
@@ -209,6 +280,12 @@ function Mailbox({ session }: { session: Session }) {
           {/* Hueco para plugins: cada módulo puede añadir aquí su pestaña. */}
         </aside>
       </div>
+      {actions.toast && (
+        <ToastView toast={actions.toast} onUndo={actions.undo} onClose={actions.dismissToast} />
+      )}
+      {actions.pendingDelete && (
+        <ConfirmDelete onConfirm={actions.confirmDelete} onCancel={actions.cancelDelete} />
+      )}
     </div>
   );
 }

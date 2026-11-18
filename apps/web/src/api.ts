@@ -70,6 +70,17 @@ export type MessageDetail = {
   attachments: Attachment[];
 };
 
+export type MessageLocation = MessageDetail["locations"][number];
+export type UserFlag = "\\Seen" | "\\Flagged";
+export type QueuedAction = {
+  id: string;
+  type: "flags" | "move" | "expunge";
+  state: string;
+  undoable: boolean;
+  targetFolderId: string | null;
+};
+type ActionReply = { action: QueuedAction | null };
+
 export type ThreadMessage = {
   id: string;
   messageIdHeader: string | null;
@@ -153,6 +164,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
+const post = <T>(path: string, body: object) =>
+  request<T>(path, { method: "POST", body: JSON.stringify(body) });
+
 export const api = {
   session: () => request<Session>("/auth/session"),
   login: (email: string, password: string) =>
@@ -174,6 +188,13 @@ export const api = {
     request<{ message: MessageDetail }>(`/messages/${id}`).then((data) => data.message),
   body: (id: string, images: boolean) =>
     request<RenderedBody>(`/messages/${id}/html?images=${images ? "1" : "0"}`),
+  setFlags: (id: string, folderId: string, add: UserFlag[], remove: UserFlag[]) =>
+    post<ActionReply>(`/messages/${id}/flags`, { folderId, add, remove }),
+  move: (id: string, folderId: string, targetFolderId: string) =>
+    post<ActionReply>(`/messages/${id}/move`, { folderId, targetFolderId }),
+  remove: (id: string, folderId: string, permanent: boolean) =>
+    post<ActionReply>(`/messages/${id}/delete`, { folderId, permanent }),
+  undo: (actionId: string) => post<ActionReply>(`/actions/${actionId}/undo`, {}),
   thread: (id: string) =>
     request<{ messages: ThreadMessage[] }>(`/threads/${id}`).then((data) => data.messages),
   search: (filters: SearchFilters) => {
