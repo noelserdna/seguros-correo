@@ -47,6 +47,7 @@ export type Attachment = {
   inline: boolean;
   /** Si se ha podido leer su texto. `null`: aún no se ha intentado. */
   textStatus: "pending" | "ok" | "needs_ocr" | "empty" | "unsupported" | "failed" | null;
+  textChars: number | null;
 };
 export type MessageDetail = {
   id: string;
@@ -59,6 +60,13 @@ export type MessageDetail = {
   date: string | null;
   internalDate: string;
   bodyText: string | null;
+  /** Lo que este correo aporta de nuevo, sin historial citado ni firma. */
+  bodyClean: string | null;
+  replyTo: Address[];
+  bcc: Address[];
+  direction: "in" | "out" | null;
+  autoReply: boolean;
+  priority: "high" | "low" | null;
   bodyPending: boolean;
   hasAttachments: boolean | null;
   removedFromServerAt: string | null;
@@ -113,6 +121,14 @@ export type QueuedAction = {
   targetFolderId: string | null;
 };
 type ActionReply = { action: QueuedAction | null };
+
+/** Texto leído de un adjunto, página a página. */
+export type AttachmentText = {
+  status: string;
+  pagesNeedingOcr: number;
+  error: string | null;
+  pages: { page: number; label: string | null; text: string; method: string }[];
+};
 
 /** Dato de negocio ligado a un correo, con su origen. */
 export type MessageFact = {
@@ -302,6 +318,7 @@ export const api = {
     post<{ email: string }>("/admin/oauth/complete", params),
   oauthStart: (provider: string) => post<{ url: string }>(`/admin/oauth/${provider}/start`, {}),
   undo: (actionId: string) => post<ActionReply>(`/actions/${actionId}/undo`, {}),
+  attachmentText: (id: string) => request<AttachmentText>(`/attachments/${id}/text`),
   facts: (id: string) =>
     request<{ facts: MessageFact[] }>(`/messages/${id}/facts`).then((data) => data.facts),
   thread: (id: string) =>

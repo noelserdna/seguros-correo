@@ -54,8 +54,15 @@ function stripQuotedHtml(html: string): { html: string; found: boolean } {
 
 const tidy = (text: string) =>
   text
+    // Espacios duros y caracteres invisibles que deja la maquetación de los boletines.
+    .replace(/[\u00a0\u2007\u202f]/g, " ")
+    .replace(/[\u200b-\u200d\u2060\ufeff\u00ad\u034f]/g, "")
     .replace(/\r\n/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
+    // Líneas que solo traen separadores sueltos («-», «|»), restos de tablas de maquetación.
+    // (salvo «--», que es el separador de firma y se trata después).
+    .replace(/^[ \t]*(?!--[ \t]*$)[-|·•_=*]{1,3}[ \t]*$/gm, "")
+    .replace(/^[ \t]+/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 

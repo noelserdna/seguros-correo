@@ -199,6 +199,8 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         date: message.date,
         internalDate: message.internalDate,
         bodyText: message.bodyText,
+        /** Lo que este correo aporta de nuevo, sin historial citado ni firma. */
+        bodyClean: message.bodyClean,
         /** El cuerpo aún no se ha descargado del servidor. */
         bodyPending: message.rawSha256 === null,
         hasAttachments: message.hasAttachments,
