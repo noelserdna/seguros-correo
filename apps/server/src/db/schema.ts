@@ -247,6 +247,7 @@ export type EventType =
   | "message.removed"
   | "action.queued"
   | "action.failed"
+  | "account.changed"
   | "outbound.changed"
   | "outbound.sent"
   | "outbound.failed";

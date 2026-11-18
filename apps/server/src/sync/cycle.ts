@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { SecretBox } from "../crypto/secrets.ts";
 import type { Db } from "../db/client.ts";
-import { accounts } from "../db/schema.ts";
+import { accounts, events, folders } from "../db/schema.ts";
 import { runPendingActions } from "../actions/execute.ts";
 import { runOutbox } from "../outbound/outbox.ts";
 import { resolveAuth } from "../accounts/auth.ts";
@@ -13,6 +13,14 @@ import { backfillFolder, syncFolder } from "./folder-sync.ts";
 import { syncFolderList } from "./folders.ts";
 import { markRemoved } from "./removed.ts";
 import { DEFAULT_SYNC_OPTIONS, type SyncContext, type SyncOptions } from "./types.ts";
+
+const countFolders = async (db: Db, accountId: string) =>
+  (
+    await db
+      .select({ id: folders.id })
+      .from(folders)
+      .where(and(eq(folders.accountId, accountId), isNull(folders.goneAt)))
+  ).length;
 
 export type SyncDeps = { db: Db; secrets: SecretBox; rawStore: RawStore; oauth?: OAuthSettings };
 
@@ -79,6 +87,7 @@ export async function runSyncCycle(
     result.drafts = outbox.drafts;
     result.actions = await runPendingActions(ctx);
 
+    const foldersBefore = await countFolders(deps.db, account.id);
     const folderList = await syncFolderList(ctx);
     const backfill: string[] = [];
     for (const folder of folderList) {
@@ -97,10 +106,27 @@ export async function runSyncCycle(
     if (result.bodies >= ctx.options.bodyBatch) result.pending = true;
     result.removed = await markRemoved(deps.db, account.id, ctx.options.removalGraceMs);
 
+    const [before] = await deps.db
+      .select({ state: accounts.state })
+      .from(accounts)
+      .where(eq(accounts.id, account.id));
     await deps.db
       .update(accounts)
       .set({ state: "ok", lastError: null, lastSyncAt: new Date() })
       .where(eq(accounts.id, account.id));
+
+    // Aviso para las pantallas abiertas. La carga del histórico y los cambios de carpetas
+    // no generan eventos de correo, y sin esto un buzón recién conectado no aparecería
+    // hasta recargar la página.
+    const { pending, ...counts } = result;
+    const changed =
+      pending ||
+      before?.state !== "ok" ||
+      foldersBefore !== (await countFolders(deps.db, account.id)) ||
+      Object.values(counts).some((count) => count > 0);
+    if (changed) {
+      await deps.db.insert(events).values({ accountId: account.id, type: "account.changed" });
+    }
     return result;
   } catch (error) {
     await deps.db

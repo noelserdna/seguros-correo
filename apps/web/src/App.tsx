@@ -61,6 +61,7 @@ function useLiveUpdates(onEvent: (event: LiveEvent) => void): boolean {
       timer = setTimeout(() => {
         timer = null;
         for (const key of [
+          "accounts",
           "folders",
           "messages",
           "archive",

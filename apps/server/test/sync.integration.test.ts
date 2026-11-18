@@ -57,8 +57,14 @@ afterEach(async () => {
 });
 
 const allMessages = () => env.db.select().from(messages).orderBy(asc(messages.internalDate));
+/** Eventos de correo, en orden. El aviso de «buzón actualizado» es solo para las pantallas. */
 const eventTypes = async () =>
-  (await env.db.select().from(events).orderBy(asc(events.id))).map((event) => event.type);
+  (await env.db.select().from(events).orderBy(asc(events.id)))
+    .map((event) => event.type)
+    .filter((type) => type !== "account.changed");
+
+const screenNotices = async () =>
+  (await env.db.select().from(events)).filter((event) => event.type === "account.changed").length;
 
 /** Presencias de un correo, con la ruta de su carpeta. */
 const instancesOf = (messageId: string) =>
@@ -385,5 +391,28 @@ describe("supervisor", () => {
     } finally {
       await supervisor.stop();
     }
+  });
+});
+
+describe("avisos para las pantallas abiertas", () => {
+  it("avisa al cargar un buzón por primera vez y cuando algo cambia, y calla si no cambia nada", async () => {
+    await appendMail(outlook, { subject: "Ya estaba" });
+    await syncAll(env, account);
+    // Primera carga: aparecen carpetas e histórico sin ningún «correo recibido».
+    const afterLoad = await screenNotices();
+    expect(afterLoad).toBeGreaterThanOrEqual(1);
+    expect(await eventTypes()).toEqual([]);
+
+    await runSyncCycle(env, account);
+    await runSyncCycle(env, account);
+    expect(await screenNotices()).toBe(afterLoad);
+
+    await outlook.mailboxCreate("Nueva carpeta");
+    await runSyncCycle(env, account);
+    expect(await screenNotices()).toBe(afterLoad + 1);
+
+    await appendMail(outlook, { subject: "Llega después" });
+    await runSyncCycle(env, account);
+    expect(await screenNotices()).toBeGreaterThan(afterLoad + 1);
   });
 });
