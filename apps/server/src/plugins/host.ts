@@ -14,6 +14,8 @@ export type MailEvent = typeof events.$inferSelect;
  */
 export type ServerPlugin = {
   id: string;
+  /** Otros módulos que tienen que estar activos para que este funcione. */
+  requires?: string[];
   /** Cómo se llama y para qué sirve, en palabras: se enseña en Configuración. */
   name?: string;
   description?: string;
@@ -31,6 +33,40 @@ export type ServerPlugin = {
 export type PluginServices = { db: Db; rawStore: RawStore; config: Config };
 
 const BATCH = 200;
+
+/** Falta un módulo que otro necesita: el servidor no arranca y dice cuál. */
+export class PluginDependencyError extends Error {}
+
+/**
+ * Ordena los módulos para que cada uno vaya detrás de los que necesita: así sus tablas
+ * existen antes y recibe los eventos después. Comprueba que estén todos.
+ */
+export function orderPlugins(plugins: ServerPlugin[]): ServerPlugin[] {
+  const byId = new Map(plugins.map((plugin) => [plugin.id, plugin]));
+  for (const plugin of plugins) {
+    for (const needed of plugin.requires ?? []) {
+      if (!byId.has(needed)) {
+        throw new PluginDependencyError(`«${plugin.id}» necesita «${needed}»: añádelo a PLUGINS.`);
+      }
+    }
+  }
+  const ordered: ServerPlugin[] = [];
+  const visiting = new Set<string>();
+  const visit = (plugin: ServerPlugin) => {
+    if (ordered.includes(plugin)) return;
+    if (visiting.has(plugin.id)) {
+      throw new PluginDependencyError(
+        `Los módulos se necesitan entre sí en círculo: ${plugin.id}.`,
+      );
+    }
+    visiting.add(plugin.id);
+    for (const needed of plugin.requires ?? []) visit(byId.get(needed)!);
+    visiting.delete(plugin.id);
+    ordered.push(plugin);
+  };
+  for (const plugin of plugins) visit(plugin);
+  return ordered;
+}
 
 /**
  * Reparte los eventos del correo entre los plugins. Cada plugin tiene su propio

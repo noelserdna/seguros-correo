@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { ExtractionWorker } from "./documents/worker.ts";
 import { buildApp } from "./http/app.ts";
 import { expedientesPlugin } from "./plugins/expedientes/index.ts";
-import { PluginHost, type ServerPlugin } from "./plugins/host.ts";
+import { orderPlugins, PluginHost, type ServerPlugin } from "./plugins/host.ts";
 import { ocrPlugin } from "./plugins/ocr/index.ts";
 import { visionPlugin } from "./plugins/vision/index.ts";
 import { openRuntime } from "./runtime.ts";
@@ -17,14 +17,16 @@ const available: Record<string, ServerPlugin> = {
   ocr: ocrPlugin,
   vision: visionPlugin,
 };
-const plugins = runtime.config.PLUGINS.split(",")
-  .map((id) => id.trim())
-  .filter(Boolean)
-  .map((id) => {
-    const plugin = available[id];
-    if (!plugin) throw new Error(`PLUGINS nombra un módulo que no existe: «${id}».`);
-    return plugin;
-  });
+const plugins = orderPlugins(
+  runtime.config.PLUGINS.split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((id) => {
+      const plugin = available[id];
+      if (!plugin) throw new Error(`PLUGINS nombra un módulo que no existe: «${id}».`);
+      return plugin;
+    }),
+);
 console.log(`Módulos: ${plugins.map((plugin) => plugin.id).join(", ") || "ninguno"}`);
 const pluginHost = new PluginHost(runtime.db, plugins, runtime.rawStore, runtime.config);
 await pluginHost.setup();
