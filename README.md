@@ -117,6 +117,7 @@ Librerías, todas de licencia permisiva: `unpdf` (MIT), `mammoth` (BSD-2), `exce
 De serie, la aplicación es un cliente de correo con contexto: correo, texto limpio, lectura de adjuntos, búsqueda y anotaciones. Lo demás son módulos opcionales, que se cargan con la variable `PLUGINS` (separados por comas):
 
 - `expedientes`: agrupar correos en expedientes, con sus datos y su contexto.
+- `tramitacion`: llevar cada expediente como un caso, con fases, tareas de una plantilla, plazos (naturales o hábiles, desde el siniestro, la apertura o la tarea anterior), esperas a terceros con su reclamación, un directorio de terceros y un semáforo de salud calculado por reglas. Necesita `expedientes`. Trae de serie la plantilla «Siniestro de automóvil con atestado»; sus plazos legales son orientativos hasta confirmarlos.
 - `ocr`: reconocer el texto de fotos y documentos escaneados (Tesseract en español, dentro del propio servidor).
 - `vision`: leer fotos, planos y escaneados con un modelo de visión, en cola: copia su texto y anota qué contienen. Habla la API de chat estándar, así que sirve igual con OpenRouter (solo para pruebas: los documentos salen fuera) que con un servidor en la oficina. Configuración en `.env.example`; la cola se ve en Configuración.
 

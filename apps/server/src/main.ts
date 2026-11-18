@@ -5,6 +5,7 @@ import { buildApp } from "./http/app.ts";
 import { expedientesPlugin } from "./plugins/expedientes/index.ts";
 import { orderPlugins, PluginHost, type ServerPlugin } from "./plugins/host.ts";
 import { ocrPlugin } from "./plugins/ocr/index.ts";
+import { tramitacionPlugin } from "./plugins/tramitacion/index.ts";
 import { visionPlugin } from "./plugins/vision/index.ts";
 import { openRuntime } from "./runtime.ts";
 import { SyncService } from "./sync/service.ts";
@@ -15,6 +16,7 @@ const sync = new SyncService(runtime);
 const available: Record<string, ServerPlugin> = {
   expedientes: expedientesPlugin,
   ocr: ocrPlugin,
+  tramitacion: tramitacionPlugin,
   vision: visionPlugin,
 };
 const plugins = orderPlugins(

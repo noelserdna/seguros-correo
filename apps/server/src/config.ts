@@ -18,7 +18,8 @@ const schema = z.object({
 
   /**
    * Módulos opcionales que se cargan, separados por comas: `expedientes` (gestión de
-   * expedientes), `ocr` (texto de fotos y escaneados con Tesseract) y `vision` (texto y
+   * expedientes), `tramitacion` (plan de tareas, plazos y esperas; necesita `expedientes`),
+   * `ocr` (texto de fotos y escaneados con Tesseract) y `vision` (texto y
    * descripción con un modelo de visión). Sin ninguno, es un cliente de correo con contexto.
    */
   PLUGINS: z.string().default(""),
