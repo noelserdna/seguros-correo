@@ -85,9 +85,13 @@ function fieldRatio(fields: string[], output: string, notes: string[]): number {
   return 1 - missing.length / fields.length;
 }
 
+/** La marca, con corchetes o sin ellos: lo que se mide es si inventa, no si clava el formato. */
+const MARKS = /\[?\s*(SIN TEXTO|ILEGIBLE)\s*\]?/gi;
+const saysNoText = (output: string) => /SIN TEXTO/i.test(output) || output.trim() === "";
+const saysUnreadable = (output: string) => /ILEGIBLE/i.test(output);
+
 /** Quita marcas y rodeos para saber si la respuesta trae contenido de verdad. */
-const substance = (output: string) =>
-  output.replaceAll(NO_TEXT, "").replaceAll(UNREADABLE, "").replace(/\s+/g, " ").trim();
+const substance = (output: string) => output.replace(MARKS, "").replace(/\s+/g, " ").trim();
 
 export function scoreCase(test: Case, output: string): Score {
   const notes: string[] = [];
@@ -140,13 +144,13 @@ export function scoreCase(test: Case, output: string): Score {
     }
     case "sin-texto": {
       const invented = substance(output);
-      if (!output.includes(NO_TEXT)) notes.push("No dice que no hay texto.");
+      if (!saysNoText(output)) notes.push("No dice que no hay texto.");
       if (invented.length > 40) notes.push(`Se inventa texto: «${invented.slice(0, 80)}»`);
-      const pass = output.includes(NO_TEXT) && invented.length <= 40;
+      const pass = saysNoText(output) && invented.length <= 40;
       return done(pass ? 1 : 0, pass);
     }
     case "ilegible": {
-      const said = output.includes(UNREADABLE) || output.includes(NO_TEXT);
+      const said = saysUnreadable(output) || saysNoText(output);
       const invented = substance(output);
       // Si de verdad lo ha leído, mejor que mejor; lo malo es escribir algo que no está.
       if (invented.length > 80 && similarity(test.truth ?? "", invented) >= 0.7) {

@@ -43,6 +43,9 @@ describe("puntuación de la batería de lectura", () => {
   it("ante una página sin texto, inventar suspende", () => {
     const test: Case = { ...base, task: "sin-texto" };
     expect(scoreCase(test, "[SIN TEXTO]").pass).toBe(true);
+    // Sin corchetes o con la respuesta vacía también vale: lo que se mide es si inventa.
+    expect(scoreCase(test, "SIN TEXTO").pass).toBe(true);
+    expect(scoreCase(test, "").pass).toBe(true);
     expect(scoreCase(test, "Estimado cliente: le comunicamos que su póliza ha vencido.").pass).toBe(
       false,
     );
