@@ -173,6 +173,83 @@ const PATHS = {
       <path d="M6 8h8M11 5l3 3-3 3" />
     </>
   ),
+  // Estados de la tramitación. Cada uno con su forma, para no depender del color.
+  circle: <circle cx="8" cy="8" r="5.5" />,
+  circleDashed: <circle cx="8" cy="8" r="5.5" strokeDasharray="2.2 2.2" />,
+  circleHalf: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  circleSlash: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="m4.2 11.8 7.6-7.6" />
+    </>
+  ),
+  circleCheck: (
+    <>
+      <circle cx="8" cy="8" r="6" fill="currentColor" stroke="none" />
+      <path d="m5.3 8.2 1.9 1.9 3.6-3.8" stroke="#fff" strokeWidth="1.8" />
+    </>
+  ),
+  circleCheckOutline: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="m5.4 8.1 1.8 1.8 3.4-3.6" />
+    </>
+  ),
+  dot: <circle cx="8" cy="8" r="5.5" fill="currentColor" stroke="none" />,
+  hourglass: (
+    <>
+      <path d="M4.5 2.5h7M4.5 13.5h7" />
+      <path d="M5.5 2.5c0 3 5 3.3 5 5.5s-5 2.5-5 5.5M10.5 2.5c0 3-5 3.3-5 5.5s5 2.5 5 5.5" />
+    </>
+  ),
+  hourglassUser: (
+    <>
+      <path d="M3.5 2.5h6M3.5 13.5h6" />
+      <path d="M4.3 2.5c0 3 4.4 3.3 4.4 5.5s-4.4 2.5-4.4 5.5M8.7 2.5c0 3-4.4 3.3-4.4 5.5s4.4 2.5 4.4 5.5" />
+      <circle cx="13" cy="6.2" r="1.5" />
+      <path d="M10.8 11.5a2.2 2.2 0 0 1 4.4 0" />
+    </>
+  ),
+  triangle: (
+    <>
+      <path d="M8 2.3 14.2 13H1.8z" fill="currentColor" />
+      <path d="M8 6.4v3" stroke="#fff" strokeWidth="1.6" />
+      <path d="M8 11.1v.1" stroke="#fff" strokeWidth="1.8" />
+    </>
+  ),
+  diamond: <path d="M8 1.6 14.4 8 8 14.4 1.6 8z" fill="currentColor" />,
+  pause: <path d="M5.5 3.5v9M10.5 3.5v9" strokeWidth="2.6" />,
+  scales: (
+    <>
+      <path d="M8 2.5v11M5 13.5h6M3 4.5h10" />
+      <path d="M3 4.5 1.5 8.5h3zM13 4.5l-1.5 4h3z" />
+    </>
+  ),
+  tasks: (
+    <>
+      <path d="M2.5 4.5h1.5M2.5 8h1.5M2.5 11.5h1.5" />
+      <path d="M6.5 4.5h7M6.5 8h7M6.5 11.5h4.5" />
+    </>
+  ),
+  plus: <path d="M8 3v10M3 8h10" />,
+  more: (
+    <>
+      <circle cx="4" cy="8" r=".7" fill="currentColor" />
+      <circle cx="8" cy="8" r=".7" fill="currentColor" />
+      <circle cx="12" cy="8" r=".7" fill="currentColor" />
+    </>
+  ),
+  note: (
+    <>
+      <path d="M3 2.5h10v11H3z" />
+      <path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;

@@ -126,6 +126,8 @@ function Mailbox({ session }: { session: Session }) {
   const labels = usePluginLabels(visibleIds);
   const activePlugin =
     url.view === "plugin" ? plugins.find((plugin) => plugin.id === url.pluginId) : undefined;
+  // Un módulo con página propia ocupa todo el ancho: sin carpetas, sin lista ni lectura.
+  const pagePlugin = activePlugin?.Page ? activePlugin : undefined;
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = list;
   const loadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
@@ -343,7 +345,7 @@ function Mailbox({ session }: { session: Session }) {
       />
       <div className="relative flex min-h-0 grow">
         {!phone && <Rail />}
-        {layout === "desktop" && folderPanel}
+        {layout === "desktop" && !pagePlugin && folderPanel}
         {navOpen && layout !== "desktop" && (
           <div className="fixed inset-0 z-40 flex">
             <div className="flex max-w-[calc(100vw-48px)] shadow-[8px_0_24px_rgba(27,35,48,0.18)]">
@@ -361,6 +363,8 @@ function Mailbox({ session }: { session: Session }) {
 
         {url.view === "settings" ? (
           <SettingsView isAdmin={session.user.role === "admin"} />
+        ) : pagePlugin?.Page && !url.composeId ? (
+          <pagePlugin.Page isAdmin={session.user.role === "admin"} userId={session.user.id} />
         ) : (
           <>
             {!showList ? null : url.view === "outbox" && accountId ? (

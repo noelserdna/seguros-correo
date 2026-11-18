@@ -265,6 +265,8 @@ export const apiPost = post;
 export const apiPut = <T>(path: string, body: object) =>
   request<T>(path, { method: "PUT", body: JSON.stringify(body) });
 export const apiDelete = <T>(path: string) => request<T>(path, { method: "DELETE" });
+export const apiPatch = <T>(path: string, body: object) =>
+  request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 
 export const api = {
   session: () => request<Session>("/auth/session"),

@@ -53,7 +53,9 @@ export function Rail() {
               aria-label={plugin.rail.label}
               title={plugin.rail.label}
               aria-current={view === "plugin" && pluginId === plugin.id ? "page" : undefined}
-              onClick={() => navigate({ view: "plugin", pluginId: plugin.id, messageId: null })}
+              onClick={() =>
+                navigate({ view: "plugin", pluginId: plugin.id, messageId: null, sub: null })
+              }
               className={`flex h-11 w-10 items-center justify-center rounded-md border-0 ${
                 view === "plugin" && pluginId === plugin.id
                   ? "bg-rail-active text-white"

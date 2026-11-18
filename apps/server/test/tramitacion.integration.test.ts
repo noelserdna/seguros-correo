@@ -259,13 +259,11 @@ describe("tramitación", () => {
     // Enviada desde el redactor, la reclamación se apunta sola.
     const outboundId = "00000000-0000-4000-8000-000000000001";
     await call("POST", `${BASE}/tasks/${task(view, "T2").id}/chase-link`, { outboundId });
-    await env.db
-      .insert(events)
-      .values({
-        accountId: account.id,
-        type: "outbound.sent",
-        payload: { outboundId, userId: marta.id },
-      });
+    await env.db.insert(events).values({
+      accountId: account.id,
+      type: "outbound.sent",
+      payload: { outboundId, userId: marta.id },
+    });
     await host.drain();
     view = (await call("GET", `${BASE}/cases/${view.case.id}`)).json<View>();
     expect(task(view, "T2").chaseCount).toBe(2);

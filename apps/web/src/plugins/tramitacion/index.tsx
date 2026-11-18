@@ -1,0 +1,14 @@
+import type { WebPlugin } from "../types.ts";
+import { TramitacionContext, TramitarAction } from "./FromMail.tsx";
+import { TramitacionSettings } from "./Settings.tsx";
+import { TramitacionPage } from "./Work.tsx";
+
+/** Módulo de tramitación en la interfaz: página propia, botón en el correo, contexto y configuración. */
+export const tramitacionPlugin: WebPlugin = {
+  id: "tramitacion",
+  rail: { icon: "tasks", label: "Tramitación" },
+  Page: TramitacionPage,
+  ToolbarAction: TramitarAction,
+  ContextSection: TramitacionContext,
+  SettingsSection: TramitacionSettings,
+};

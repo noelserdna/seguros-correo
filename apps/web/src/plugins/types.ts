@@ -19,6 +19,11 @@ export type WebPlugin = {
   useLabels?: (messageIds: string[]) => Map<string, string[]>;
   /** Hueco 3: acción en el extremo derecho de la barra del correo abierto. */
   ToolbarAction?: ComponentType<{ message: MessageDetail; openContext: () => void }>;
+  /**
+   * Página a todo el ancho: al elegir la entrada del riel ocupa lista y lectura, sin el
+   * panel de carpetas. Si un módulo tiene `Page`, no usa `View`.
+   */
+  Page?: ComponentType<{ isAdmin: boolean; userId: string }>;
   /** Apartado propio en la pantalla de Configuración. */
   SettingsSection?: ComponentType<{ isAdmin: boolean }>;
   /** Hueco 4: sección en el panel de contexto. */

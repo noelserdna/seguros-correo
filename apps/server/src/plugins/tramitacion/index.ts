@@ -114,7 +114,12 @@ const portfolioQuery = z.object({
   esperando: z.enum(["terceros", "cliente"]).optional(),
   parados: z.coerce.number().int().min(1).max(365).optional(),
 });
-const peopleQuery = z.object({ caseId: z.uuid() });
+const peopleQuery = z
+  .object({ caseId: z.uuid().optional(), accountId: z.uuid().optional() })
+  .refine(
+    (query) => Boolean(query.caseId) !== Boolean(query.accountId),
+    "Di el expediente o el buzón.",
+  );
 const linkBody = z.object({ outboundId: z.uuid() });
 
 /** Apunta una reclamación: suma una y mueve la próxima. */
@@ -975,11 +980,13 @@ export const tramitacionPlugin: ServerPlugin = {
     // Quién puede llevar las tareas de un expediente: quien tiene su buzón.
     app.get("/people", async (request) => {
       const { user } = requireSession(request);
-      const { caseId } = peopleQuery.parse(request.query);
-      const kase = await loadCase(user.id, caseId);
+      const query = peopleQuery.parse(request.query);
+      let accountId = query.accountId ?? null;
+      if (query.caseId) accountId = (await loadCase(user.id, query.caseId)).accountId;
+      else await assertAccess(db, user.id, accountId!);
       const rows = await db.execute(sql`
         select u.id, u.name, u.email from users u join account_access a on a.user_id = u.id
-         where a.account_id = ${kase.accountId} order by u.name`);
+         where a.account_id = ${accountId} order by u.name`);
       return { people: rows.rows };
     });
 
