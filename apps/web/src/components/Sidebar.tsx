@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Account, type Folder } from "../api.ts";
 import { folderRows } from "../folders.ts";
+import { plugins } from "../plugins/index.ts";
 import { navigate, useUrlState, type View } from "../url-state.ts";
 import { folderIcon, Icon, type IconName } from "./Icon.tsx";
 
@@ -35,7 +36,7 @@ function RailButton({
 
 /** Riel de módulos. Debajo de Archivo queda sitio para una entrada por plugin. */
 export function Rail() {
-  const { view } = useUrlState();
+  const { view, pluginId } = useUrlState();
   return (
     <nav
       aria-label="Módulos"
@@ -43,6 +44,26 @@ export function Rail() {
     >
       <RailButton icon="mail" label="Correo" view="mail" current={view} />
       <RailButton icon="archive" label="Archivo" view="archive" current={view} />
+      {plugins.map(
+        (plugin) =>
+          plugin.rail && (
+            <button
+              key={plugin.id}
+              type="button"
+              aria-label={plugin.rail.label}
+              title={plugin.rail.label}
+              aria-current={view === "plugin" && pluginId === plugin.id ? "page" : undefined}
+              onClick={() => navigate({ view: "plugin", pluginId: plugin.id, messageId: null })}
+              className={`flex h-11 w-10 items-center justify-center rounded-md border-0 ${
+                view === "plugin" && pluginId === plugin.id
+                  ? "bg-rail-active text-white"
+                  : "bg-transparent text-rail-ink hover:bg-rail-active"
+              }`}
+            >
+              <Icon name={plugin.rail.icon} size={18} />
+            </button>
+          ),
+      )}
     </nav>
   );
 }

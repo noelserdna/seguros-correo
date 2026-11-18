@@ -21,8 +21,10 @@ function MessageRow({
   selected,
   archived,
   onSelect,
+  labels,
 }: {
   item: MessageItem;
+  labels: string[] | undefined;
   selected: boolean;
   archived: boolean;
   onSelect: () => void;
@@ -60,7 +62,15 @@ function MessageRow({
           <span className={`min-w-0 grow truncate ${weight}`}>
             {item.subject || "(sin asunto)"}
           </span>
-          {/* Hueco para plugins: aquí cabe una etiqueta, por ejemplo el número de siniestro. */}
+          {/* Hueco para plugins: etiquetas, por ejemplo el número de expediente. */}
+          {labels?.map((label) => (
+            <span
+              key={label}
+              className="rounded bg-accent-soft px-1.5 py-px text-[11px] font-semibold whitespace-nowrap text-accent-strong"
+            >
+              {label}
+            </span>
+          ))}
           {item.hasAttachments && (
             <Icon name="clip" size={14} label="Con adjuntos" className="text-ink-2" />
           )}
@@ -88,7 +98,10 @@ export function MessageList({
   onSelect,
   archived = false,
   empty,
+  labels,
 }: {
+  /** Etiquetas que aportan los plugins, por correo. */
+  labels?: Map<string, string[]>;
   title: string;
   subtitle?: string;
   items: MessageItem[];
@@ -245,6 +258,7 @@ export function MessageList({
                   ) : (
                     <MessageRow
                       item={row.item}
+                      labels={labels?.get(row.item.id)}
                       selected={row.item.id === selectedId}
                       archived={archived}
                       onSelect={() => onSelect(row.item.id)}

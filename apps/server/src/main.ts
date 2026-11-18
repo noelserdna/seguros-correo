@@ -1,13 +1,21 @@
 /** Servicio: API HTTP y sincronización en vivo de todos los buzones dados de alta. */
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./http/app.ts";
+import { demoPlugin } from "./plugins/demo/index.ts";
+import { PluginHost } from "./plugins/host.ts";
 import { openRuntime } from "./runtime.ts";
 import { SyncService } from "./sync/service.ts";
 
 const runtime = await openRuntime();
 const sync = new SyncService(runtime);
 
+const plugins = [demoPlugin];
+const pluginHost = new PluginHost(runtime.db, plugins);
+await pluginHost.setup();
+pluginHost.start();
+
 const app = await buildApp({
+  plugins,
   db: runtime.db,
   secrets: runtime.secrets,
   rawStore: runtime.rawStore,
@@ -26,6 +34,7 @@ if ((await sync.startAll()) === 0) {
 }
 
 const shutdown = () => {
+  pluginHost.stop();
   void app
     .close()
     .then(() => sync.stopAll())

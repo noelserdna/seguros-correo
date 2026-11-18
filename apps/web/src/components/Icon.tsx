@@ -123,6 +123,12 @@ const PATHS = {
     </>
   ),
   check: <path d="m3 8.5 3 3 7-7" />,
+  case: (
+    <>
+      <path d="M2 5h12v8H2z" />
+      <path d="M6 5V3h4v2" />
+    </>
+  ),
   logout: (
     <>
       <path d="M6.5 2.5h-4v11h4" />

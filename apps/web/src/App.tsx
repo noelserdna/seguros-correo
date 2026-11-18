@@ -22,6 +22,7 @@ import { TopBar } from "./components/TopBar.tsx";
 import { pickLocation, useMailActions } from "./actions.ts";
 import { ConfirmDelete, ToastView } from "./components/Feedback.tsx";
 import { folderName } from "./folders.ts";
+import { plugins, usePluginLabels } from "./plugins/index.ts";
 import { navigate, useUrlState } from "./url-state.ts";
 
 /** A partir de este ancho el panel de contexto cabe al lado; por debajo se superpone. */
@@ -69,6 +70,7 @@ function useLiveUpdates(onEvent: (event: LiveEvent) => void): boolean {
           "thread",
           "search",
           "outbox",
+          "plugins",
         ]) {
           void queryClient.invalidateQueries({ queryKey: [key] });
         }
@@ -125,6 +127,10 @@ function Mailbox({ session }: { session: Session }) {
 
   const list = url.view === "archive" ? archive : messages;
   const items = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? [], [list.data]);
+  const visibleIds = useMemo(() => items.map((item) => item.id), [items]);
+  const labels = usePluginLabels(visibleIds);
+  const activePlugin =
+    url.view === "plugin" ? plugins.find((plugin) => plugin.id === url.pluginId) : undefined;
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = list;
   const loadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
@@ -199,6 +205,18 @@ function Mailbox({ session }: { session: Session }) {
         }),
       );
   }, [showToast, queryClient]);
+
+  const openContext = useCallback(() => setContextOpen(true), []);
+  const toolbarExtra = useCallback(
+    (message: MessageDetail) =>
+      plugins.map(
+        (plugin) =>
+          plugin.ToolbarAction && (
+            <plugin.ToolbarAction key={plugin.id} message={message} openContext={openContext} />
+          ),
+      ),
+    [openContext],
+  );
 
   const openDraft = useCallback((id: string) => navigate({ composeId: id }), []);
   const closeComposer = useCallback(() => navigate({ composeId: null }), []);
@@ -327,8 +345,11 @@ function Mailbox({ session }: { session: Session }) {
             onSelect={select}
             compact={Boolean(url.messageId)}
           />
+        ) : activePlugin?.View ? (
+          <activePlugin.View accountId={accountId} selectedId={url.messageId} onSelect={select} />
         ) : (
           <MessageList
+            labels={labels}
             title={url.view === "archive" ? "Archivo" : folder ? folderName(folder) : "Correo"}
             subtitle={
               url.view === "archive"
@@ -389,6 +410,7 @@ function Mailbox({ session }: { session: Session }) {
               folderId={url.view === "mail" ? url.folderId : null}
               onCompose={compose}
               onEditDraft={openDraft}
+              toolbarExtra={toolbarExtra}
             />
           )
         )}

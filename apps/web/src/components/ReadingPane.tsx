@@ -1,5 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { pickLocation, type MailActions } from "../actions.ts";
 import {
   api,
@@ -169,10 +176,12 @@ function Toolbar({
   location,
   actions,
   onCompose,
+  extra,
 }: {
   message: MessageDetail | undefined;
   location: MessageLocation | null;
   actions: MailActions | undefined;
+  extra: ((message: MessageDetail) => ReactNode) | undefined;
   onCompose: ((kind: OutboundKind) => void) | undefined;
 }) {
   const [moving, setMoving] = useState(false);
@@ -255,6 +264,8 @@ function Toolbar({
         onClick={act((m, l, a) => a.remove(m, l))}
       />
       <div className="grow" />
+      {/* Hueco para plugins: acciones del módulo sobre el correo abierto. */}
+      {message && extra?.(message)}
       <ToolButton icon="print" label="Imprimir" />
     </div>
   );
@@ -480,6 +491,7 @@ export function ReadingPane({
   folderId,
   onCompose,
   onEditDraft,
+  toolbarExtra,
 }: {
   messageId: string | null;
   /** Acciones sobre el correo. Sin ellas (en el archivo) la barra queda desactivada. */
@@ -490,6 +502,8 @@ export function ReadingPane({
   onCompose?: (kind: OutboundKind, sourceMessageId: string) => void;
   /** Seguir escribiendo un borrador propio. */
   onEditDraft?: (draftId: string) => void;
+  /** Acciones que añaden los plugins a la barra. */
+  toolbarExtra?: (message: MessageDetail) => ReactNode;
   onSelect: (id: string) => void;
   onLoaded?: (message: MessageDetail) => void;
 }) {
@@ -524,6 +538,7 @@ export function ReadingPane({
         onCompose={
           message.data && onCompose ? (kind) => onCompose(kind, message.data.id) : undefined
         }
+        extra={toolbarExtra}
       />
       {message.isLoading && (
         <div role="status" className="p-6 text-ink-2">

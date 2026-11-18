@@ -13,6 +13,7 @@ import { auditLog } from "../db/schema.ts";
 import type { Account } from "../imap/connection.ts";
 import type { OAuthAccountInput } from "../accounts/accounts.ts";
 import type { OAuthSettings } from "../oauth/providers.ts";
+import type { ServerPlugin } from "../plugins/host.ts";
 import type { RawStore } from "../storage/raw-store.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { actionRoutes } from "./routes/actions.ts";
@@ -52,6 +53,8 @@ export type AppDeps = {
   limiter?: AttemptLimiter;
   /** Carpeta con la interfaz web ya compilada. Si existe, el servidor la sirve. */
   webDir?: string;
+  /** Plugins activos. Sus rutas cuelgan de `/api/plugins/<id>`. */
+  plugins?: ServerPlugin[];
   /** Se llama al dar de alta un buzón, para empezar a sincronizarlo. */
   onAccountCreated?: (account: Account) => void;
   /** Se llama al encolar una acción, para que el buzón la atienda cuanto antes. */
@@ -152,6 +155,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(actionRoutes, { prefix: "/api", context });
   await app.register(outboundRoutes, { prefix: "/api", context });
   await app.register(oauthRoutes, { prefix: "/api", context });
+  for (const plugin of deps.plugins ?? []) {
+    if (plugin.routes) {
+      await app.register(plugin.routes, { prefix: `/api/plugins/${plugin.id}`, context });
+    }
+  }
 
   if (deps.webDir && existsSync(deps.webDir)) {
     // Los ficheros se buscan en disco en cada petición: tras recompilar la interfaz no hay que reiniciar.

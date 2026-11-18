@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { api, type MessageDetail } from "../api.ts";
 import { displayName, formatListDate } from "../format.ts";
 import { locationName, uniqueByHeader } from "../folders.ts";
+import { plugins } from "../plugins/index.ts";
 import { navigate } from "../url-state.ts";
 import { Icon } from "./Icon.tsx";
 
@@ -117,6 +118,14 @@ export function ContextPanel({
               </button>
             ))}
           </Section>
+
+          {/* Hueco para plugins: cada módulo añade aquí su sección. */}
+          {plugins.map(
+            (plugin) =>
+              plugin.ContextSection && (
+                <plugin.ContextSection key={plugin.id} message={message} onSelect={onSelect} />
+              ),
+          )}
 
           <Section title="Dónde está">
             {message.locations.length === 0 ? (

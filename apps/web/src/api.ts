@@ -198,6 +198,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 const post = <T>(path: string, body: object) =>
   request<T>(path, { method: "POST", body: JSON.stringify(body) });
 
+/** Para los plugins: llamadas a sus propias rutas con la sesión y el token de siempre. */
+export const apiGet = <T>(path: string) => request<T>(path);
+export const apiPost = post;
+
 export const api = {
   session: () => request<Session>("/auth/session"),
   login: (email: string, password: string) =>

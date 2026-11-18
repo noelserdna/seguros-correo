@@ -11,7 +11,8 @@ Estado: validación técnica.
 - Fase 3b, interfaz web de lectura (carpetas, lista, lectura segura, adjuntos, búsqueda, archivo y avisos en vivo): hecha.
 - Fase 4, acciones con reflejo (leído, bandera, mover, borrar y deshacer): hecha.
 - Fase 5, redactar y enviar (borradores, responder, reenviar, adjuntos, Bandeja de salida y copia en Enviados): hecha.
-- Fase 6, acceso con cuenta de Google y de Microsoft 365: escrita y probada contra un proveedor simulado; pendiente de validar contra los proveedores reales.
+- Fase 6, acceso con cuenta de Google y de Microsoft 365: hecha y validada contra los dos proveedores reales.
+- Fase 7, plugin de demostración (expedientes) en los cuatro huecos de la interfaz: hecha.
 
 ## Requisitos
 
@@ -76,6 +77,27 @@ Lo que se hace aquí se ve en Outlook, y al revés.
 - **El original queda marcado** como respondido o reenviado, también en Outlook.
 - **Firma por usuario y buzón,** en texto sin formato.
 - **Lo que manda el editor pasa por el mismo filtro que el correo entrante** antes de salir.
+
+## Plugins
+
+Un plugin añade funciones sin tocar el núcleo. El de demostración (`expedientes`) existe solo para probar los enganches; no es el módulo de siniestros.
+
+**En el servidor** (`apps/server/src/plugins/`), un plugin puede tener:
+
+- **Tablas propias,** que crea él mismo al arrancar.
+- **Rutas** bajo `/api/plugins/<id>`, con la misma sesión y los mismos permisos por buzón.
+- **Reacción a los eventos del correo** (`message.received`, `message.moved`…). Cada plugin tiene su marcador en la base, así que tras una parada sigue donde lo dejó.
+
+**En la interfaz** (`apps/web/src/plugins/`), puede pintar en cuatro huecos:
+
+1. Una entrada en el riel de módulos, con su propia lista.
+2. Una etiqueta en las filas de la lista de correos.
+3. Una acción en la barra del correo abierto.
+4. Una sección en el panel de contexto.
+
+El plugin de demostración crea un expediente desde un correo, con toda su conversación, y mete solos los correos que llegan después: por conversación, o porque el asunto lleva el número del expediente.
+
+Hoy los plugins se compilan con la aplicación: se añaden a una lista en `main.ts` y en `plugins/index.ts`. Cargarlos sin recompilar queda fuera de esta validación.
 
 ## Buzones de Google y de Microsoft 365
 

@@ -1,0 +1,103 @@
+import { asc, eq, gt } from "drizzle-orm";
+import type { FastifyPluginAsync } from "fastify";
+import type { Db } from "../db/client.ts";
+import { eventCursors, events } from "../db/schema.ts";
+import type { RouteOptions } from "../http/app.ts";
+
+export type MailEvent = typeof events.$inferSelect;
+
+/**
+ * Lo que un plugin puede aportar en el servidor. Todo es opcional salvo el nombre:
+ * tablas propias, rutas bajo `/api/plugins/<id>` y reacción a lo que pasa en el correo.
+ */
+export type ServerPlugin = {
+  id: string;
+  /** Crea sus tablas si no existen. Se llama en cada arranque. */
+  setup?: (db: Db) => Promise<void>;
+  routes?: FastifyPluginAsync<RouteOptions>;
+  /** Recibe cada evento una vez, en orden. Puede recibirlo de nuevo si falló a medias. */
+  onEvent?: (event: MailEvent, db: Db) => Promise<void>;
+};
+
+const BATCH = 200;
+
+/**
+ * Reparte los eventos del correo entre los plugins. Cada plugin tiene su propio
+ * marcador de por dónde va, guardado en la base: si el servidor se para, al volver
+ * sigue donde lo dejó y no se pierde ningún evento.
+ */
+export class PluginHost {
+  readonly #db: Db;
+  readonly #plugins: ServerPlugin[];
+  #timer: ReturnType<typeof setInterval> | null = null;
+  #busy = false;
+
+  constructor(db: Db, plugins: ServerPlugin[]) {
+    this.#db = db;
+    this.#plugins = plugins;
+  }
+
+  async setup(): Promise<void> {
+    for (const plugin of this.#plugins) {
+      await plugin.setup?.(this.#db);
+      await this.#db
+        .insert(eventCursors)
+        .values({ consumer: `plugin:${plugin.id}` })
+        .onConflictDoNothing();
+    }
+  }
+
+  /** Entrega a cada plugin los eventos que le faltan. Devuelve cuántos ha entregado. */
+  async drain(): Promise<number> {
+    let delivered = 0;
+    for (const plugin of this.#plugins) {
+      if (!plugin.onEvent) continue;
+      const consumer = `plugin:${plugin.id}`;
+      for (;;) {
+        const [cursor] = await this.#db
+          .select()
+          .from(eventCursors)
+          .where(eq(eventCursors.consumer, consumer));
+        const pending = await this.#db
+          .select()
+          .from(events)
+          .where(gt(events.id, cursor?.lastEventId ?? 0))
+          .orderBy(asc(events.id))
+          .limit(BATCH);
+        if (pending.length === 0) break;
+        for (const event of pending) {
+          try {
+            await plugin.onEvent(event, this.#db);
+          } catch (error) {
+            // Un evento que un plugin no sabe tratar no debe atascar los siguientes.
+            console.error(`Plugin ${plugin.id}: fallo con el evento ${event.id}`, error);
+          }
+          await this.#db
+            .update(eventCursors)
+            .set({ lastEventId: event.id })
+            .where(eq(eventCursors.consumer, consumer));
+          delivered++;
+        }
+      }
+    }
+    return delivered;
+  }
+
+  start(intervalMs = 1500): void {
+    if (this.#timer) return;
+    this.#timer = setInterval(() => {
+      if (this.#busy) return;
+      this.#busy = true;
+      void this.drain()
+        .catch((error: unknown) => console.error("Plugins: fallo al repartir eventos", error))
+        .finally(() => {
+          this.#busy = false;
+        });
+    }, intervalMs);
+  }
+
+  stop(): void {
+    if (this.#timer) clearInterval(this.#timer);
+    this.#timer = null;
+  }
+}

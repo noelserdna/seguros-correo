@@ -1,12 +1,14 @@
 import { useSyncExternalStore } from "react";
 
 /** Dónde está el usuario. Vive en la dirección de la página, para que Atrás y recargar funcionen. */
-export type View = "mail" | "archive" | "search" | "outbox";
+export type View = "mail" | "archive" | "search" | "outbox" | "plugin";
 export type UrlState = {
   view: View;
   accountId: string | null;
   folderId: string | null;
   messageId: string | null;
+  /** Módulo elegido en el riel cuando la vista es la de un plugin. */
+  pluginId: string | null;
   /** Correo que se está escribiendo; ocupa el panel de lectura. */
   composeId: string | null;
   q: string;
@@ -28,7 +30,11 @@ function read(): UrlState {
   const view = params.get("v");
   cachedSearch = search;
   cachedState = {
-    view: view === "archive" || view === "search" || view === "outbox" ? view : "mail",
+    view:
+      view === "archive" || view === "search" || view === "outbox" || view === "plugin"
+        ? view
+        : "mail",
+    pluginId: params.get("p"),
     composeId: params.get("r"),
     accountId: params.get("b"),
     folderId: params.get("c"),
@@ -50,6 +56,7 @@ function write(state: UrlState, replace: boolean): void {
   if (state.folderId) params.set("c", state.folderId);
   if (state.messageId) params.set("m", state.messageId);
   if (state.composeId) params.set("r", state.composeId);
+  if (state.view === "plugin" && state.pluginId) params.set("p", state.pluginId);
   if (state.view === "search") {
     if (state.q) params.set("q", state.q);
     if (state.from) params.set("de", state.from);
