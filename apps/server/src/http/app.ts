@@ -13,6 +13,7 @@ import { auditLog } from "../db/schema.ts";
 import type { Account } from "../imap/connection.ts";
 import type { RawStore } from "../storage/raw-store.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { contentRoutes } from "./routes/content.ts";
 import { mailRoutes } from "./routes/mail.ts";
@@ -45,6 +46,8 @@ export type AppDeps = {
   webDir?: string;
   /** Se llama al dar de alta un buzón, para empezar a sincronizarlo. */
   onAccountCreated?: (account: Account) => void;
+  /** Se llama al encolar una acción, para que el buzón la atienda cuanto antes. */
+  onActionQueued?: (accountId: string) => void;
 };
 
 export class HttpError extends Error {
@@ -136,6 +139,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(adminRoutes, { prefix: "/api/admin", context });
   await app.register(mailRoutes, { prefix: "/api", context });
   await app.register(contentRoutes, { prefix: "/api", context });
+  await app.register(actionRoutes, { prefix: "/api", context });
 
   if (deps.webDir && existsSync(deps.webDir)) {
     await app.register(fastifyStatic, { root: deps.webDir, wildcard: false });

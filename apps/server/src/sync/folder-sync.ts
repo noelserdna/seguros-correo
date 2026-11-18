@@ -1,5 +1,5 @@
 import { and, eq, gte, inArray, isNull } from "drizzle-orm";
-import { events, folderMessages, folders } from "../db/schema.ts";
+import { events, folderMessages, folders, mailActions } from "../db/schema.ts";
 import { ENVELOPE_QUERY, ingestMessages, normalizeFlags, toRemoteMessage } from "./ingest.ts";
 import type { Folder, SyncContext } from "./types.ts";
 
@@ -115,10 +115,23 @@ export async function syncFolder(ctx: SyncContext, folder: Folder): Promise<Fold
               ),
             ),
           );
+        // Marcas cambiadas por el usuario que aún no han llegado al servidor: lo que
+        // diga el servidor de ellas todavía es viejo.
+        const queued = await db
+          .select({ messageId: mailActions.messageId })
+          .from(mailActions)
+          .where(
+            and(
+              eq(mailActions.folderId, folder.id),
+              eq(mailActions.type, "flags"),
+              inArray(mailActions.state, ["pending", "running"]),
+            ),
+          );
+        const waiting = new Set(queued.map((action) => action.messageId));
         const byUid = new Map(local.map((row) => [row.uid, row]));
         for (const remote of remoteFlags) {
           const row = byUid.get(remote.uid);
-          if (!row) continue;
+          if (!row || waiting.has(row.messageId)) continue;
           const flags = normalizeFlags(remote.flags);
           if (sameFlags(row.flags, flags)) continue;
           await db.transaction(async (tx) => {

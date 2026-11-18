@@ -42,6 +42,11 @@ export class SyncService {
     console.log(`${now()}  ${account.email}  sincronizando`);
   }
 
+  /** Pide un ciclo cuanto antes para un buzón (hay acciones en cola). */
+  nudge(accountId: string): void {
+    this.#supervisors.get(accountId)?.nudge();
+  }
+
   async stopAll(): Promise<void> {
     await Promise.all([...this.#supervisors.values()].map((supervisor) => supervisor.stop()));
     this.#supervisors.clear();

@@ -14,6 +14,7 @@ const app = await buildApp({
   webDir: fileURLToPath(new URL("../../web/dist", import.meta.url)),
   cookieSecure: runtime.config.COOKIE_SECURE,
   onAccountCreated: (account) => sync.start(account),
+  onActionQueued: (accountId) => sync.nudge(accountId),
 });
 await app.listen({ host: runtime.config.HOST, port: runtime.config.PORT });
 console.log(`API en http://${runtime.config.HOST}:${runtime.config.PORT}`);

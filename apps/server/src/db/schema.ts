@@ -241,7 +241,12 @@ export const attachments = pgTable(
 );
 
 export type EventType =
-  "message.received" | "message.moved" | "message.flagsChanged" | "message.removed";
+  | "message.received"
+  | "message.moved"
+  | "message.flagsChanged"
+  | "message.removed"
+  | "action.queued"
+  | "action.failed";
 
 /** Eventos para plugins, escritos en la misma transacción que el cambio que describen. */
 export const events = pgTable(
@@ -257,6 +262,53 @@ export const events = pgTable(
     createdAt: createdAt(),
   },
   (table) => [index("events_account").on(table.accountId, table.id)],
+);
+
+export type MailActionType = "flags" | "move" | "expunge";
+export type MailActionState = "pending" | "running" | "done" | "failed" | "cancelled";
+export type MailActionPayload = {
+  /** Posición del correo en la carpeta de origen cuando se pidió la acción. */
+  uid: number;
+  uidValidity: number;
+  /** Fila de la carpeta de origen sobre la que se aplicó el cambio por adelantado. */
+  folderMessageId?: string;
+  add?: string[];
+  remove?: string[];
+  /** Marcas que tenía antes, para restaurarlas si la acción falla o se cancela. */
+  previousFlags?: string[];
+  targetFolderId?: string;
+};
+
+/**
+ * Cola de acciones sobre el buzón (marcar, mover, borrar). La pantalla refleja el
+ * cambio en cuanto se pide; el servidor de correo lo recibe en el siguiente ciclo.
+ */
+export const mailActions = pgTable(
+  "mail_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id"),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    folderId: uuid("folder_id")
+      .notNull()
+      .references(() => folders.id, { onDelete: "cascade" }),
+    type: text("type").$type<MailActionType>().notNull(),
+    payload: jsonb("payload").$type<MailActionPayload>().notNull(),
+    state: text("state").$type<MailActionState>().notNull().default("pending"),
+    /** Para un movimiento hecho: la posición del correo en la carpeta de destino. */
+    result: jsonb("result").$type<{ uid?: number; uidValidity?: number }>(),
+    error: text("error"),
+    /** Acción que esta deshace. */
+    undoOf: uuid("undo_of"),
+    createdAt: createdAt(),
+    finishedAt: timestamptz("finished_at"),
+  },
+  (table) => [index("mail_actions_queue").on(table.accountId, table.state, table.createdAt)],
 );
 
 /** Hasta dónde ha leído cada consumidor de eventos. */
