@@ -67,6 +67,12 @@ Lo que se hace aquí se ve en Outlook, y al revés.
 - **Si otro programa se adelanta.** Cuando el correo ya no está donde se esperaba, la acción se rechaza, la pantalla vuelve al estado real y se avisa a quien la pidió.
 - **Auditoría.** Cada acción queda anotada con su usuario.
 
+## Apuntado para configuración
+
+Comportamientos que hoy son fijos y deberán poder elegirse (por usuario o por oficina):
+
+- **Qué se abre al mover o borrar un correo.** Hoy se abre el siguiente de la lista, que queda marcado como leído, como hace Outlook. Alternativas: no abrir ninguno, o abrir el anterior.
+
 ## Cómo funciona la sincronización
 
 - **Identidad:** cada presencia de un correo en una carpeta se identifica por carpeta, validez y uid. El correo en sí tiene un identificador propio que no cambia aunque se mueva, y se reconoce en otra carpeta por una huella (Message-ID, fecha de llegada, tamaño, asunto y remitente). El Message-ID solo no vale: no es único.

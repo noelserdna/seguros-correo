@@ -154,6 +154,10 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
         and(
           eq(messages.accountId, id),
           isNotNull(messages.removedFromServerAt),
+          // Las versiones viejas de un borrador no son correo: no van al archivo.
+          sql`exists (select 1 from folder_messages fm join folders f on f.id = fm.folder_id
+                       where fm.message_id = ${messages.id}
+                         and f.special_use is distinct from 'drafts')`,
           cursorDate && cursorId
             ? or(
                 lt(messages.internalDate, cursorDate),
@@ -182,7 +186,14 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
     if (query.accountId) accountIds = accountIds.filter((id) => id === query.accountId);
     if (accountIds.length === 0) return { items: [], truncated: false };
 
-    const filters = [sql`m.search @@ q`];
+    const filters = [
+      sql`m.search @@ q`,
+      // Fuera las versiones viejas de borradores: solo cuenta lo que sigue en una carpeta
+      // o estuvo alguna vez en una que no fuera Borradores.
+      sql`exists (select 1 from folder_messages fm join folders f on f.id = fm.folder_id
+                   where fm.message_id = m.id
+                     and (fm.gone_at is null or f.special_use is distinct from 'drafts'))`,
+    ];
     if (query.from) {
       const pattern = `%${query.from.replace(/[%_\\]/g, "\\$&")}%`;
       filters.push(sql`(m.from_name ilike ${pattern} or m.from_address ilike ${pattern})`);

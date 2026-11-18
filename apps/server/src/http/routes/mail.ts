@@ -8,6 +8,7 @@ import {
   folderMessages,
   folders,
   messages,
+  outboundMessages,
 } from "../../db/schema.ts";
 import { assertAccess } from "../access.ts";
 import { audit, notFound, requireSession, type RouteOptions } from "../app.ts";
@@ -146,6 +147,19 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
       .where(eq(attachments.messageId, id))
       .orderBy(attachments.position);
 
+    const [draft] = message.messageIdHeader
+      ? await db
+          .select({ id: outboundMessages.id })
+          .from(outboundMessages)
+          .where(
+            and(
+              eq(outboundMessages.messageIdHeader, message.messageIdHeader),
+              eq(outboundMessages.userId, user.id),
+              eq(outboundMessages.state, "draft"),
+            ),
+          )
+      : [];
+
     await audit(db, {
       userId: user.id,
       accountId: message.accountId,
@@ -172,6 +186,8 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         removedFromServerAt: message.removedFromServerAt,
         locations,
         attachments: files,
+        /** Es un borrador escrito aquí por este usuario: se puede seguir editando. */
+        draftId: draft?.id ?? null,
       },
     };
   });

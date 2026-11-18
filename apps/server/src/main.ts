@@ -15,6 +15,7 @@ const app = await buildApp({
   cookieSecure: runtime.config.COOKIE_SECURE,
   onAccountCreated: (account) => sync.start(account),
   onActionQueued: (accountId) => sync.nudge(accountId),
+  onOutboundChanged: (accountId, delayMs) => sync.nudgeIn(accountId, delayMs),
 });
 await app.listen({ host: runtime.config.HOST, port: runtime.config.PORT });
 console.log(`API en http://${runtime.config.HOST}:${runtime.config.PORT}`);

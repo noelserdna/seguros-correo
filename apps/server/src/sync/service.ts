@@ -9,6 +9,7 @@ const now = () => new Date().toLocaleTimeString("es-ES", { hour12: false });
 export class SyncService {
   readonly #deps: SyncDeps;
   readonly #supervisors = new Map<string, AccountSupervisor>();
+  readonly #timers = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(deps: SyncDeps) {
     this.#deps = deps;
@@ -47,7 +48,18 @@ export class SyncService {
     this.#supervisors.get(accountId)?.nudge();
   }
 
+  /** Pide un ciclo pasado un tiempo (por ejemplo, al acabar el margen para deshacer un envío). */
+  nudgeIn(accountId: string, delayMs: number): void {
+    const timer = setTimeout(() => {
+      this.#timers.delete(timer);
+      this.nudge(accountId);
+    }, delayMs);
+    this.#timers.add(timer);
+  }
+
   async stopAll(): Promise<void> {
+    for (const timer of this.#timers) clearTimeout(timer);
+    this.#timers.clear();
     await Promise.all([...this.#supervisors.values()].map((supervisor) => supervisor.stop()));
     this.#supervisors.clear();
   }

@@ -246,7 +246,10 @@ export type EventType =
   | "message.flagsChanged"
   | "message.removed"
   | "action.queued"
-  | "action.failed";
+  | "action.failed"
+  | "outbound.changed"
+  | "outbound.sent"
+  | "outbound.failed";
 
 /** Eventos para plugins, escritos en la misma transacción que el cambio que describen. */
 export const events = pgTable(
@@ -310,6 +313,87 @@ export const mailActions = pgTable(
   },
   (table) => [index("mail_actions_queue").on(table.accountId, table.state, table.createdAt)],
 );
+
+/** Cómo firma cada usuario cuando escribe desde un buzón. */
+export const identities = pgTable(
+  "identities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Texto de la firma, sin formato. Vacío: sin firma. */
+    signature: text("signature").notNull().default(""),
+    createdAt: createdAt(),
+  },
+  (table) => [uniqueIndex("identities_owner").on(table.accountId, table.userId)],
+);
+
+export type OutboundKind = "new" | "reply" | "replyAll" | "forward";
+export type OutboundState = "draft" | "queued" | "sending" | "sent" | "failed" | "discarded";
+
+/**
+ * Correos que se escriben aquí: borradores, los que esperan en la Bandeja de salida
+ * y los ya enviados. La cabecera Message-ID se fija al crearlo y no cambia, para
+ * reconocer el correo en el servidor y no duplicar ni el borrador ni la copia enviada.
+ */
+export const outboundMessages = pgTable(
+  "outbound_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<OutboundKind>().notNull().default("new"),
+    /** Correo al que se responde o que se reenvía. */
+    sourceMessageId: uuid("source_message_id").references(() => messages.id, {
+      onDelete: "set null",
+    }),
+    messageIdHeader: text("message_id_header").notNull(),
+    inReplyTo: text("in_reply_to"),
+    references: text("references")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    to: jsonb("to").$type<Address[]>().notNull().default([]),
+    cc: jsonb("cc").$type<Address[]>().notNull().default([]),
+    bcc: jsonb("bcc").$type<Address[]>().notNull().default([]),
+    subject: text("subject").notNull().default(""),
+    bodyHtml: text("body_html").notNull().default(""),
+    state: text("state").$type<OutboundState>().notNull().default("draft"),
+    /** No sale antes de esta hora: es el margen para deshacer el envío. */
+    sendAfter: timestamptz("send_after"),
+    /** El servidor de salida lo aceptó. A partir de aquí no se vuelve a entregar. */
+    smtpAcceptedAt: timestamptz("smtp_accepted_at"),
+    sentAt: timestamptz("sent_at"),
+    error: text("error"),
+    /** El borrador ha cambiado y falta llevarlo (o quitarlo) de Borradores en el servidor. */
+    draftDirty: boolean("draft_dirty").notNull().default(false),
+    draftSavedAt: timestamptz("draft_saved_at"),
+    createdAt: createdAt(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (table) => [index("outbound_queue").on(table.accountId, table.state)],
+);
+
+export const outboundAttachments = pgTable("outbound_attachments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  outboundId: uuid("outbound_id")
+    .notNull()
+    .references(() => outboundMessages.id, { onDelete: "cascade" }),
+  filename: text("filename").notNull(),
+  contentType: text("content_type").notNull(),
+  size: integer("size").notNull(),
+  /** Contenido en el almacén de originales. */
+  sha256: text("sha256").notNull(),
+  createdAt: createdAt(),
+});
 
 /** Hasta dónde ha leído cada consumidor de eventos. */
 export const eventCursors = pgTable("event_cursors", {

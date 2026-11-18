@@ -3,6 +3,7 @@ import type { SecretBox } from "../crypto/secrets.ts";
 import type { Db } from "../db/client.ts";
 import { accounts } from "../db/schema.ts";
 import { runPendingActions } from "../actions/execute.ts";
+import { runOutbox } from "../outbound/outbox.ts";
 import { errorMessage, imapClientFor, isAuthError, type Account } from "../imap/connection.ts";
 import type { RawStore } from "../storage/raw-store.ts";
 import { downloadBodies } from "./bodies.ts";
@@ -16,6 +17,10 @@ export type SyncDeps = { db: Db; secrets: SecretBox; rawStore: RawStore };
 export type CycleResult = {
   /** Acciones de la cola atendidas (hechas o rechazadas). */
   actions: number;
+  /** Correos enviados, envíos fallidos y borradores llevados al servidor. */
+  sent: number;
+  sendFailed: number;
+  drafts: number;
   created: number;
   attached: number;
   flagsChanged: number;
@@ -38,6 +43,9 @@ export async function runSyncCycle(
 ): Promise<CycleResult> {
   const result: CycleResult = {
     actions: 0,
+    sent: 0,
+    sendFailed: 0,
+    drafts: 0,
     created: 0,
     attached: 0,
     flagsChanged: 0,
@@ -61,6 +69,10 @@ export async function runSyncCycle(
     };
 
     // Primero lo que ha pedido el usuario: la sincronización que sigue ya ve el resultado.
+    const outbox = await runOutbox(ctx, deps.secrets);
+    result.sent = outbox.sent;
+    result.sendFailed = outbox.failed;
+    result.drafts = outbox.drafts;
     result.actions = await runPendingActions(ctx);
 
     const folderList = await syncFolderList(ctx);

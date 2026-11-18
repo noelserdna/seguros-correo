@@ -16,6 +16,7 @@ import { adminRoutes } from "./routes/admin.ts";
 import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { contentRoutes } from "./routes/content.ts";
+import { outboundRoutes } from "./routes/outbound.ts";
 import { mailRoutes } from "./routes/mail.ts";
 
 const APP_CSP = [
@@ -48,6 +49,8 @@ export type AppDeps = {
   onAccountCreated?: (account: Account) => void;
   /** Se llama al encolar una acción, para que el buzón la atienda cuanto antes. */
   onActionQueued?: (accountId: string) => void;
+  /** Hay un borrador o un envío nuevo: el buzón debe atenderlo pasado ese tiempo. */
+  onOutboundChanged?: (accountId: string, delayMs: number) => void;
 };
 
 export class HttpError extends Error {
@@ -140,6 +143,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(mailRoutes, { prefix: "/api", context });
   await app.register(contentRoutes, { prefix: "/api", context });
   await app.register(actionRoutes, { prefix: "/api", context });
+  await app.register(outboundRoutes, { prefix: "/api", context });
 
   if (deps.webDir && existsSync(deps.webDir)) {
     await app.register(fastifyStatic, { root: deps.webDir, wildcard: false });
