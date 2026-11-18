@@ -41,14 +41,21 @@ function filterQuery(filter: PortfolioFilter, userId: string): string {
 }
 
 function MiniPhases({ row }: { row: PortfolioRow }) {
-  const current = row.phases.findIndex((phase) => phase.state !== "hecha");
+  const current = row.phases.findIndex(
+    (phase) => phase.state !== "hecha" && phase.state !== "por_validar",
+  );
   return (
     <span className="flex flex-col gap-0.5">
       <span className="flex gap-0.5" aria-hidden>
         {row.phases.map((phase, index) => (
           <span
             key={phase.name}
-            className={`h-1.5 w-3.5 rounded-sm ${phase.state === "hecha" ? "bg-ok" : index === current ? "bg-accent" : phase.state === "retraso" ? "bg-flag" : "bg-line"}`}
+            title={
+              phase.state === "por_validar"
+                ? `${phase.name}: falta el correo que la valide`
+                : undefined
+            }
+            className={`h-1.5 w-3.5 rounded-sm ${phase.state === "hecha" ? "bg-ok" : phase.state === "por_validar" ? "border border-ok bg-panel" : index === current ? "bg-accent" : phase.state === "retraso" ? "bg-flag" : "bg-line"}`}
           />
         ))}
       </span>

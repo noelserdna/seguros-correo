@@ -7,7 +7,8 @@ export const KEY = ["plugins", "tramitacion"] as const;
 
 export type DerivedState = "hecha" | "omitida" | "bloqueada" | "esperando" | "en_curso" | "lista";
 export type HealthLevel = "cerrado" | "sin_plan" | "vencidas" | "parado" | "riesgo" | "al_dia";
-export type PhaseState = "hecha" | "actual" | "retraso" | "proxima";
+/** «por_validar»: sus tareas están hechas, pero ningún correo del expediente lo demuestra. */
+export type PhaseState = "hecha" | "por_validar" | "actual" | "retraso" | "proxima";
 export type Health = { level: HealthLevel; reasons: string[]; lateCount: number; idleDays: number };
 
 export type NextStep =
@@ -27,6 +28,7 @@ export type NextStep =
       chaseAt: string | null;
     }
   | { kind: "desbloquear"; taskId: string; name: string; blockers: string[] }
+  | { kind: "validar"; phaseId: string; name: string }
   | { kind: "cerrar" }
   | { kind: "sin_plan" };
 

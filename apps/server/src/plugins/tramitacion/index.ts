@@ -596,9 +596,16 @@ export const tramitacionPlugin: ServerPlugin = {
       if (!message) throw notFound();
       await assertAccess(db, user.id, message.accountId);
       await db.transaction(async (tx) => {
+        // La prueba es un correo del expediente: si aún no estaba, entra en él.
+        await tx.execute(sql`
+          insert into exp_case_messages (message_id, case_id, how, added_by)
+          values (${messageId}, ${task.caseId}, 'prueba', ${user.id})
+          on conflict do nothing`);
         if (complete) {
+          // Si ya estaba hecha (validar una fase), se conserva cuándo y quién la hizo.
           await tx.execute(sql`
-            update tra_tasks set status = 'hecha', done_at = ${todayInSpain()}, done_by = ${user.id},
+            update tra_tasks set status = 'hecha', done_at = coalesce(done_at, ${todayInSpain()}),
+                   done_by = coalesce(done_by, ${user.id}),
                    evidence_message_id = ${messageId}, waiting_contact_id = null, waiting_client = false,
                    chase_at = null, updated_at = now()
              where id = ${id}`);

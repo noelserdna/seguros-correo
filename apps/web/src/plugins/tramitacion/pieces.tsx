@@ -95,6 +95,7 @@ export function HealthBadge({ health, size = 14 }: { health: Health; size?: numb
 
 const PHASE_LOOK: Record<PhaseState, string> = {
   hecha: "bg-[#EEF6F1] text-ink",
+  por_validar: "bg-ground text-ink",
   actual: "bg-accent text-white",
   retraso: "bg-warn text-warn-ink",
   proxima: "bg-ground text-ink-2",
@@ -123,11 +124,14 @@ export function PhaseBar({
             <Icon name="circleCheck" size={13} className="text-ok" />
           ) : phase.state === "actual" ? (
             <span className="size-2 rounded-full bg-white" />
+          ) : phase.state === "por_validar" ? (
+            <Icon name="mail" size={13} className="text-ink" />
           ) : phase.state === "retraso" ? (
             <Icon name="triangle" size={12} className="text-flag" />
           ) : null;
         const label = {
           hecha: "hecha",
+          por_validar: "hecha, falta el correo que la valide",
           actual: "en curso",
           retraso: "con retraso",
           proxima: "pendiente",
@@ -136,6 +140,7 @@ export function PhaseBar({
           <li
             key={phase.name}
             aria-label={`${phase.name}: ${label}`}
+            title={phase.state === "por_validar" ? "Falta el correo que la valide" : undefined}
             aria-current={phase.state === "actual" ? "step" : undefined}
             className={`flex min-w-0 flex-1 items-center gap-1.5 text-xs font-semibold whitespace-nowrap ${compact ? "h-6 justify-center" : "h-8 pr-3 pl-5"} ${first ? "" : "-ml-1"} ${PHASE_LOOK[phase.state]}`}
             style={{ clipPath: clip }}

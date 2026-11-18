@@ -110,6 +110,14 @@ describe("textos de la tramitación", () => {
   });
 });
 
+describe("paso de validar", () => {
+  it("pide el correo que valida la fase", () => {
+    expect(nextStepText({ kind: "validar", phaseId: "p", name: "Apertura" }, TODAY)).toBe(
+      "Validar «Apertura» con un correo",
+    );
+  });
+});
+
 describe("toWho", () => {
   it("contrae el artículo con el cliente", () => {
     expect(toWho("el cliente")).toBe("al cliente");

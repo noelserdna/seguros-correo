@@ -318,6 +318,37 @@ describe("tramitación", () => {
     expect(cycle.statusCode).toBe(400);
   });
 
+  it("una fase no se da por buena sin un correo del expediente que la valide", async () => {
+    let view = await open("Atestado 2026/9050");
+    const patch = async (key: string, body: object) =>
+      (await call("PATCH", `${BASE}/tasks/${task(view, key).id}`, body)).json<View>();
+    view = await patch("T1", { status: "hecha" });
+    view = await patch("T2", { status: "hecha" });
+    expect(view.phases[0]).toMatchObject({ name: "Apertura", state: "por_validar" });
+    expect(view.nextStep).toMatchObject({ kind: "validar", name: "Apertura" });
+    const doneAt = (
+      await env.db.execute<{ day: string }>(
+        sql`select to_char(done_at, 'YYYY-MM-DD') as day from tra_tasks where id = ${task(view, "T2").id}`,
+      )
+    ).rows[0]!.day;
+
+    // La documentación del cliente llega en un correo suelto: al validar, entra en el expediente.
+    await appendMail(outlook, { subject: "Os mando el DNI y el permiso" });
+    await settle();
+    const docs = await idOf("Os mando el DNI y el permiso");
+    view = (
+      await call("POST", `${BASE}/tasks/${task(view, "T2").id}/evidence`, { messageId: docs })
+    ).json<View>();
+    expect(view.phases[0]!.state).toBe("hecha");
+    expect(task(view, "T2")).toMatchObject({ state: "hecha", evidenceMessageId: docs });
+    expect(view.nextStep.kind).not.toBe("validar");
+    const linked = await env.db.execute<{ how: string; day: string }>(sql`
+      select cm.how, (select to_char(done_at, 'YYYY-MM-DD') from tra_tasks where id = ${task(view, "T2").id}) as day
+        from exp_case_messages cm where cm.case_id = ${view.case.id} and cm.message_id = ${docs}`);
+    // Queda en el expediente como prueba, y la tarea conserva el día en que se hizo.
+    expect(linked.rows[0]).toEqual({ how: "prueba", day: doneAt });
+  });
+
   it("cerrar pide confirmación si quedan tareas, y la cartera lo refleja", async () => {
     const view = await open("Atestado 2026/9002");
     const url = `${BASE}/cases/${view.case.id}/close`;

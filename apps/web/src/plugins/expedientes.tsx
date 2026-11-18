@@ -5,6 +5,8 @@ import { Confirm } from "../components/Confirm.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { CatalogList } from "../components/settings.tsx";
 import { displayName, formatListDate } from "../format.ts";
+// Se usa al pintar, no al cargar: la referencia circular con el índice no molesta.
+import { plugins } from "./index.ts";
 import type { WebPlugin } from "./types.ts";
 
 /**
@@ -27,7 +29,7 @@ type CaseMessage = {
   fromName: string;
   fromAddress: string;
   internalDate: string;
-  how: "manual" | "thread" | "reference";
+  how: "manual" | "thread" | "reference" | "claim" | "prueba";
   /** Sigue en el expediente, pero no cuenta como contexto. */
   excluded: boolean;
   mailbox: string;
@@ -40,6 +42,8 @@ const HOW: Record<string, string> = {
   manual: "añadido a mano",
   thread: "por conversación",
   reference: "por el número en el asunto",
+  claim: "por el número de siniestro",
+  prueba: "como prueba de una tarea",
 };
 
 const useCasesOf = (messageId: string) =>
@@ -523,6 +527,12 @@ export const expedientesPlugin: WebPlugin = {
                   <div className="flex flex-col gap-1.5 bg-ground px-3 py-2.5">
                     <InsurerSelect item={item} />
                     <ContextMeter caseId={item.id} />
+                    {plugins.map(
+                      (plugin) =>
+                        plugin.CaseSection && (
+                          <plugin.CaseSection key={plugin.id} caseId={item.id} />
+                        ),
+                    )}
                     {(detail.data?.messages ?? []).map((entry) => (
                       <MessageLine
                         key={entry.id}

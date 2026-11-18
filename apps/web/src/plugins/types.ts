@@ -28,6 +28,11 @@ export type WebPlugin = {
   settings?: SettingsPage[];
   /** Bloque dentro del apartado «Lectura de documentos» (p. ej. una cola de lectura). */
   DocumentsSection?: ComponentType<{ isAdmin: boolean }>;
+  /**
+   * Bloque dentro de un expediente abierto en el módulo Expedientes (p. ej. su plan de
+   * tramitación). Solo lo usan módulos que dependen de Expedientes.
+   */
+  CaseSection?: ComponentType<{ caseId: string }>;
   /** Hueco 4: sección en el panel de contexto. */
   ContextSection?: ComponentType<{ message: MessageDetail; onSelect: (messageId: string) => void }>;
 };

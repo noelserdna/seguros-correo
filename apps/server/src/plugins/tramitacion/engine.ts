@@ -36,6 +36,8 @@ export type EngineTask = {
   dueOverride: Day | null;
   legalRef: string | null;
   doneAt: Day | null;
+  /** El correo del expediente que demuestra que se hizo. */
+  evidenceMessageId: string | null;
   /** Ids de las tareas de las que depende. */
   dependsOn: string[];
 };
@@ -69,12 +71,17 @@ export type DerivedTask = EngineTask & {
   chaseDue: boolean;
 };
 
-export type PhaseState = "hecha" | "actual" | "retraso" | "proxima";
+/**
+ * «por_validar»: todas sus tareas están hechas, pero ningún correo del expediente lo
+ * demuestra. El correo es la fuente de la verdad: sin él la fase no se da por buena.
+ */
+export type PhaseState = "hecha" | "por_validar" | "actual" | "retraso" | "proxima";
 
 export type NextStep =
   | { kind: "tarea"; taskId: string; name: string; due: Day | null; late: boolean; legal: boolean }
   | { kind: "esperar"; taskId: string; name: string; waitingOn: string | null; chaseAt: Day | null }
   | { kind: "desbloquear"; taskId: string; name: string; blockers: string[] }
+  | { kind: "validar"; phaseId: string; name: string }
   | { kind: "cerrar" }
   | { kind: "sin_plan" };
 
@@ -190,8 +197,12 @@ export function phaseStates(phases: EnginePhase[], tasks: DerivedTask[]): Map<st
   for (const phase of phases) {
     const own = tasks.filter((task) => task.phaseId === phase.id);
     let state: PhaseState;
-    if (own.every((task) => task.state === "hecha" || task.state === "omitida")) state = "hecha";
-    else if (own.some((task) => task.lateDays > 0)) state = "retraso";
+    if (own.every((task) => task.state === "hecha" || task.state === "omitida")) {
+      const done = own.filter((task) => task.state === "hecha");
+      // Una fase que no aplica entera no tiene nada que validar.
+      state =
+        done.length === 0 || done.some((task) => task.evidenceMessageId) ? "hecha" : "por_validar";
+    } else if (own.some((task) => task.lateDays > 0)) state = "retraso";
     else if (own.some((task) => ["lista", "en_curso", "esperando"].includes(task.state)))
       state = "actual";
     else state = "proxima";
@@ -206,6 +217,7 @@ export function phaseStates(phases: EnginePhase[], tasks: DerivedTask[]): Map<st
  * otros, la espera que antes toca reclamar.
  */
 export function nextStep(phases: EnginePhase[], tasks: DerivedTask[]): NextStep {
+  // Una fase terminada sin correo que la demuestre va antes que lo demás, salvo lo vencido.
   if (tasks.length === 0) return { kind: "sin_plan" };
   const order = byPlan(phases);
   const actionable = tasks
@@ -218,6 +230,14 @@ export function nextStep(phases: EnginePhase[], tasks: DerivedTask[]): NextStep 
         order(a, b),
     );
   const first = actionable[0];
+  const states = phaseStates(phases, tasks);
+  const unvalidated = [...phases]
+    .sort((a, b) => a.position - b.position)
+    .find((phase) => states.get(phase.id) === "por_validar");
+  const validate = unvalidated
+    ? ({ kind: "validar", phaseId: unvalidated.id, name: unvalidated.name } as const)
+    : null;
+  if (validate && !(first && first.lateDays > 0)) return validate;
   if (first) {
     return {
       kind: "tarea",
@@ -322,6 +342,8 @@ export function summarize(input: {
     phases,
     nextStep: nextStep(input.phases, tasks),
     health: health(input.kase, tasks, idle),
-    currentPhase: phases.find((phase) => phase.state !== "hecha")?.name ?? null,
+    currentPhase:
+      phases.find((phase) => phase.state !== "hecha" && phase.state !== "por_validar")?.name ??
+      null,
   };
 }

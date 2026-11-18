@@ -80,6 +80,8 @@ export function nextStepText(step: NextStep, today: string): string {
         : `Esperar ${toWho(step.waitingOn)}${step.chaseAt ? ` · reclamar el ${shortDay(step.chaseAt, today)}` : ""}`;
     case "desbloquear":
       return `Desbloquear: ${step.name}`;
+    case "validar":
+      return `Validar «${step.name}» con un correo`;
     case "cerrar":
       return "Cerrar el expediente";
     default:

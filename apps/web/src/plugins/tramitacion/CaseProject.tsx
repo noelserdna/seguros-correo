@@ -1,6 +1,6 @@
 /** Ficha de un expediente en tramitación: fases, siguiente paso, tareas, esperas y correos. */
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiGet, ApiError } from "../../api.ts";
 import { Confirm } from "../../components/Confirm.tsx";
 import { Icon } from "../../components/Icon.tsx";
@@ -381,12 +381,14 @@ function TaskRow({
   change,
   focus,
   onFocus,
+  onRead,
 }: {
   task: Task;
   view: CaseView;
   change: ReturnType<typeof useCaseChange>;
   focus: boolean;
   onFocus: () => void;
+  onRead: (messageId: string) => void;
 }) {
   const [open, setOpen] = useState<"wait" | "menu" | null>(null);
   const [forceDone, setForceDone] = useState(false);
@@ -418,6 +420,17 @@ function TaskRow({
       >
         {task.name}
       </span>
+      {task.evidenceMessageId && (
+        <button
+          type="button"
+          aria-label="Leer el correo que lo prueba"
+          title="Leer el correo que lo prueba"
+          onClick={() => onRead(task.evidenceMessageId!)}
+          className="flex size-6 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-ink-2 hover:bg-ground hover:text-ink"
+        >
+          <Icon name="mail" size={14} />
+        </button>
+      )}
       <span
         className={`hidden w-[300px] shrink-0 truncate text-xs md:block ${done || task.state === "bloqueada" ? "text-ink-2" : "text-ink"}`}
       >
@@ -513,6 +526,117 @@ function TaskRow({
 
 // ------------------------------------------------------------------ correos
 
+/** Los correos del expediente: la fuente de la verdad de todo el plan. */
+const useCaseMails = (caseId: string) =>
+  useQuery({
+    queryKey: ["plugins", "expedientes", "case", caseId],
+    queryFn: () => apiGet<{ messages: CaseMessage[] }>(`/plugins/expedientes/cases/${caseId}`),
+  });
+
+/** La tarea hecha que recibe el correo que valida una fase: la última de la fase. */
+const proofTarget = (view: CaseView, phaseId: string) =>
+  view.tasks.filter((task) => task.phaseId === phaseId && task.state === "hecha").at(-1);
+
+/** El correo que valida una fase, si lo hay. */
+const phaseProof = (view: CaseView, phaseId: string) =>
+  view.tasks.find((task) => task.phaseId === phaseId && task.evidenceMessageId)
+    ?.evidenceMessageId ?? null;
+
+function ValidateDialog({
+  view,
+  phase,
+  change,
+  onRead,
+  onClose,
+}: {
+  view: CaseView;
+  phase: { id: string; name: string };
+  change: ReturnType<typeof useCaseChange>;
+  onRead: (messageId: string) => void;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
+  const mails = useCaseMails(view.case.id);
+  const list = [...(mails.data?.messages ?? [])].reverse();
+  const target = proofTarget(view, phase.id);
+  const pick = (messageId: string) => {
+    if (!target) return;
+    change.run(() => tramitacion.evidence(target.id, messageId, true));
+    onClose();
+  };
+  return (
+    <dialog
+      ref={dialog}
+      onClose={onClose}
+      aria-labelledby="validar-fase"
+      className="m-auto w-[560px] max-w-[calc(100vw-32px)] rounded-[10px] border-0 bg-panel p-0 text-ink shadow-[0_16px_40px_rgba(27,35,48,0.3)] backdrop:bg-ink/30"
+    >
+      <div className="flex flex-col gap-1 px-5 pt-5 pb-3">
+        <h2 id="validar-fase" className="m-0 text-base font-semibold">
+          ¿Qué correo valida «{phase.name}»?
+        </h2>
+        <p className="m-0 text-xs leading-normal text-ink-2">
+          Una fase solo se da por buena con un correo del expediente que lo demuestre. Queda ligado
+          a «{target?.name ?? "su última tarea"}».
+        </p>
+      </div>
+      <ul className="m-0 flex max-h-[360px] list-none flex-col overflow-y-auto border-y border-line p-0">
+        {list.map((mail) => (
+          <li
+            key={mail.id}
+            className="flex items-center gap-3 border-b border-line-soft px-5 py-2 last:border-b-0"
+          >
+            <span className="flex min-w-0 grow flex-col gap-0.5 text-xs">
+              <span className="flex gap-2">
+                <b className="min-w-0 grow truncate font-semibold">
+                  {mail.fromName || mail.fromAddress}
+                </b>
+                <span className="text-ink-2">
+                  {shortDay(mail.internalDate.slice(0, 10), view.today)}
+                </span>
+              </span>
+              <span className="truncate">{mail.subject || "(sin asunto)"}</span>
+            </span>
+            <button
+              type="button"
+              className={buttonClass.small}
+              onClick={() => {
+                onRead(mail.id);
+                onClose();
+              }}
+            >
+              Leer
+            </button>
+            <button
+              type="button"
+              disabled={!target}
+              className={buttonClass.small}
+              onClick={() => pick(mail.id)}
+            >
+              <Icon name="check" size={13} />
+              La valida
+            </button>
+          </li>
+        ))}
+        {mails.isSuccess && list.length === 0 && (
+          <li className="px-5 py-3 text-xs text-ink-2">
+            Este expediente aún no tiene correos. Añade el que lo demuestre desde la barra del
+            correo.
+          </li>
+        )}
+      </ul>
+      <div className="flex justify-end px-5 py-3">
+        <button type="button" onClick={onClose} className={buttonClass.secondary}>
+          Cancelar
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
 function MailColumn({
   caseId,
   selected,
@@ -522,10 +646,7 @@ function MailColumn({
   selected: string | null;
   onOpen: (id: string) => void;
 }) {
-  const mails = useQuery({
-    queryKey: ["plugins", "expedientes", "case", caseId],
-    queryFn: () => apiGet<{ messages: CaseMessage[] }>(`/plugins/expedientes/cases/${caseId}`),
-  });
+  const mails = useCaseMails(caseId);
   const list = [...(mails.data?.messages ?? [])].reverse();
   return (
     <aside
@@ -581,12 +702,37 @@ function MailReader({
   const candidates = view.tasks.filter(
     (task) => task.state === "esperando" || task.state === "lista" || task.state === "en_curso",
   );
+  const unvalidated = view.phases.filter((phase) => phase.state === "por_validar");
   return (
     <div className="absolute top-0 right-0 bottom-0 z-20 flex w-[min(680px,100%)] flex-col border-l border-line bg-panel shadow-[-8px_0_24px_rgba(27,35,48,0.12)]">
       <div className="flex shrink-0 items-start gap-2 border-b border-line bg-ground p-3 text-xs">
         <div className="flex min-w-0 grow flex-col gap-1.5">
           <b className="font-semibold">¿Qué tarea cumple este correo?</b>
-          {candidates.length === 0 && <span className="text-ink-2">No hay tareas abiertas.</span>}
+          {unvalidated.map((phase) => {
+            const target = proofTarget(view, phase.id);
+            return (
+              <span key={phase.id} className="flex flex-wrap items-center gap-2">
+                <Icon name="mail" size={14} className="text-ink" />
+                <span className="min-w-0 truncate">
+                  Fase «{phase.name}», sin correo que la valide
+                </span>
+                <span className="grow" />
+                <button
+                  type="button"
+                  disabled={!target}
+                  className={buttonClass.small}
+                  onClick={() =>
+                    target && change.run(() => tramitacion.evidence(target.id, messageId, true))
+                  }
+                >
+                  La valida
+                </button>
+              </span>
+            );
+          })}
+          {candidates.length === 0 && unvalidated.length === 0 && (
+            <span className="text-ink-2">No hay tareas abiertas.</span>
+          )}
           {candidates.slice(0, 4).map((task) => (
             <span key={task.id} className="flex flex-wrap items-center gap-2">
               <StateIcon task={task} size={14} />
@@ -640,6 +786,7 @@ function CloseDialog({
 }) {
   const [reason, setReason] = useState("pagado");
   const open = view.tasks.filter((task) => task.state !== "hecha" && task.state !== "omitida");
+  const unvalidated = view.phases.filter((phase) => phase.state === "por_validar");
   const apply = useApplyView();
   return (
     <Confirm
@@ -658,6 +805,12 @@ function CloseDialog({
         {open.length > 0
           ? `Quedan ${open.length} tareas abiertas: se marcarán como «no aplica».`
           : "Todas las tareas están hechas."}
+        {unvalidated.length > 0 && (
+          <span>
+            Sin correo que las valide: {unvalidated.map((phase) => `«${phase.name}»`).join(", ")}.
+            Quedará constancia en el historial.
+          </span>
+        )}
         <label className="flex items-center gap-2">
           Motivo
           <select
@@ -680,9 +833,11 @@ function CloseDialog({
 function NextStepBand({
   view,
   change,
+  onValidate,
 }: {
   view: CaseView;
   change: ReturnType<typeof useCaseChange>;
+  onValidate: (phaseId: string) => void;
 }) {
   const step = view.nextStep;
   const task = "taskId" in step ? view.tasks.find((entry) => entry.id === step.taskId) : undefined;
@@ -716,6 +871,18 @@ function NextStepBand({
       >
         <Icon name="sent" />
         Redactar reclamación
+      </button>
+    );
+  } else if (step.kind === "validar") {
+    detail = "Sus tareas están hechas, pero ningún correo del expediente lo demuestra.";
+    actions = (
+      <button
+        type="button"
+        className={buttonClass.primary}
+        onClick={() => onValidate(step.phaseId)}
+      >
+        <Icon name="mail" />
+        Elegir el correo
       </button>
     );
   } else if (step.kind === "desbloquear") {
@@ -847,6 +1014,7 @@ export function CaseProject({ caseId, userId }: { caseId: string; userId: string
   const [filter, setFilter] = useState<Filter>("pendientes");
   const [closing, setClosing] = useState(false);
   const [reading, setReading] = useState<string | null>(null);
+  const [validating, setValidating] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string> | null>(null);
   const view = caseQuery.data;
@@ -1020,7 +1188,11 @@ export function CaseProject({ caseId, userId }: { caseId: string; userId: string
       )}
       <div className="relative flex min-h-0 grow">
         <div className="flex min-w-0 grow flex-col overflow-hidden">
-          {view.plan ? <NextStepBand view={view} change={change} /> : <NoPlan caseId={kase.id} />}
+          {view.plan ? (
+            <NextStepBand view={view} change={change} onValidate={setValidating} />
+          ) : (
+            <NoPlan caseId={kase.id} />
+          )}
           <div role="tablist" className="mx-5 mt-2 flex shrink-0 border-b border-line">
             {(["plan", "intervinientes", "historial"] as const).map((entry) => (
               <button
@@ -1067,18 +1239,27 @@ export function CaseProject({ caseId, userId }: { caseId: string; userId: string
                     const isOpen = !(collapsed ?? new Set()).has(phase.id);
                     return (
                       <div key={phase.id} role="rowgroup">
-                        <button
-                          type="button"
-                          aria-expanded={isOpen}
-                          onClick={() => toggle(phase.id)}
-                          className="flex h-[30px] w-full items-center gap-2 border-0 border-b border-line bg-ground px-3 text-left text-xs font-semibold text-ink"
-                        >
-                          <Icon name={isOpen ? "down" : "right"} size={12} />
-                          {phase.name}
-                          <span className="font-normal text-ink-2">
-                            {done} de {own.length} hechas
-                          </span>
-                        </button>
+                        <div className="flex h-[30px] items-center gap-2 border-b border-line bg-ground pr-3 text-xs">
+                          <button
+                            type="button"
+                            aria-expanded={isOpen}
+                            onClick={() => toggle(phase.id)}
+                            className="flex h-full min-w-0 items-center gap-2 border-0 bg-transparent pl-3 text-left font-semibold text-ink"
+                          >
+                            <Icon name={isOpen ? "down" : "right"} size={12} />
+                            {phase.name}
+                            <span className="font-normal text-ink-2">
+                              {done} de {own.length} hechas
+                            </span>
+                          </button>
+                          <span className="grow" />
+                          <PhaseProof
+                            view={view}
+                            phase={phase}
+                            onValidate={() => setValidating(phase.id)}
+                            onRead={setReading}
+                          />
+                        </div>
                         {isOpen &&
                           shown.map((task) => (
                             <TaskRow
@@ -1088,6 +1269,7 @@ export function CaseProject({ caseId, userId }: { caseId: string; userId: string
                               change={change}
                               focus={focus === task.id}
                               onFocus={() => setFocus(task.id)}
+                              onRead={setReading}
                             />
                           ))}
                       </div>
@@ -1116,7 +1298,60 @@ export function CaseProject({ caseId, userId }: { caseId: string; userId: string
         )}
       </div>
       {closing && <CloseDialog view={view} change={change} onClose={() => setClosing(false)} />}
+      {validating && view.phases.some((phase) => phase.id === validating) && (
+        <ValidateDialog
+          view={view}
+          phase={view.phases.find((phase) => phase.id === validating)!}
+          change={change}
+          onRead={setReading}
+          onClose={() => setValidating(null)}
+        />
+      )}
     </main>
+  );
+}
+
+/** En la cabecera de cada fase: con qué correo se validó, o que falta. */
+function PhaseProof({
+  view,
+  phase,
+  onValidate,
+  onRead,
+}: {
+  view: CaseView;
+  phase: { id: string; state: string };
+  onValidate: () => void;
+  onRead: (messageId: string) => void;
+}) {
+  const mails = useCaseMails(view.case.id);
+  const proof = phaseProof(view, phase.id);
+  if (phase.state === "por_validar") {
+    return (
+      <span className="flex items-center gap-2 whitespace-nowrap">
+        <Icon name="mail" size={13} className="text-ink" />
+        <b className="font-semibold">Falta el correo que la valide</b>
+        {view.case.status === "abierto" && (
+          <button type="button" onClick={onValidate} className={buttonClass.small}>
+            Elegir el correo
+          </button>
+        )}
+      </span>
+    );
+  }
+  if (!proof) return null;
+  const mail = mails.data?.messages.find((entry) => entry.id === proof);
+  return (
+    <button
+      type="button"
+      onClick={() => onRead(proof)}
+      title="Leer el correo"
+      className="flex min-w-0 items-center gap-1.5 border-0 bg-transparent p-0 text-ink-2 hover:text-ink"
+    >
+      <Icon name="mail" size={13} />
+      <span className="max-w-[360px] truncate">
+        {phase.state === "hecha" ? "Validada con " : "Prueba: "}«{mail?.subject || "un correo"}»
+      </span>
+    </button>
   );
 }
 
