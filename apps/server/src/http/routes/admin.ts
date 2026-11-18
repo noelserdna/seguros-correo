@@ -38,6 +38,7 @@ export const publicAccount = {
   state: accounts.state,
   lastError: accounts.lastError,
   lastSyncAt: accounts.lastSyncAt,
+  authType: accounts.authType,
 };
 
 export const adminRoutes: FastifyPluginAsync<RouteOptions> = async (app, { context }) => {
@@ -85,8 +86,15 @@ export const adminRoutes: FastifyPluginAsync<RouteOptions> = async (app, { conte
       target: account.email,
     });
     context.onAccountCreated?.(account);
-    const { id, name, email, state, lastError, lastSyncAt } = account;
-    return reply.status(201).send({ account: { id, name, email, state, lastError, lastSyncAt } });
+    const { id, name, email, state, lastError, lastSyncAt, authType } = account;
+    // Quien lo da de alta lo ve desde el primer momento.
+    await db
+      .insert(accountAccess)
+      .values({ accountId: id, userId: admin.user.id })
+      .onConflictDoNothing();
+    return reply
+      .status(201)
+      .send({ account: { id, name, email, state, lastError, lastSyncAt, authType } });
   });
 
   app.put("/accounts/:id/access/:userId", async (request) => {

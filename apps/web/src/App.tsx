@@ -328,9 +328,6 @@ function Mailbox({ session }: { session: Session }) {
         compose("new");
       }}
       isAdmin={session.user.role === "admin"}
-      onError={(detail) =>
-        showToast({ tone: "error", title: "No se ha podido conectar el buzón", detail })
-      }
     />
   );
 
@@ -345,7 +342,7 @@ function Mailbox({ session }: { session: Session }) {
       />
       <div className="relative flex min-h-0 grow">
         {!phone && <Rail />}
-        {layout === "desktop" && !pagePlugin && folderPanel}
+        {layout === "desktop" && !pagePlugin && url.view !== "settings" && folderPanel}
         {navOpen && layout !== "desktop" && (
           <div className="fixed inset-0 z-40 flex">
             <div className="flex max-w-[calc(100vw-48px)] shadow-[8px_0_24px_rgba(27,35,48,0.18)]">

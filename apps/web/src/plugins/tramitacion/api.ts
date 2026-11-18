@@ -258,6 +258,8 @@ export const tramitacion = {
     id
       ? apiPut<{ template: TemplateTree }>(`${BASE}/templates/${id}`, tree)
       : apiPost<{ template: TemplateTree }>(`${BASE}/templates`, tree),
+  duplicateTemplate: (id: string) =>
+    apiPost<{ template: TemplateTree }>(`${BASE}/templates/${id}/duplicate`, {}),
   addContact: (body: object) => apiPost<{ contact: Contact }>(`${BASE}/contacts`, body),
   updateContact: (id: string, body: object) => apiPut<{ ok: true }>(`${BASE}/contacts/${id}`, body),
 };

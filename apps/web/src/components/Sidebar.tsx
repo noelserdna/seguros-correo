@@ -182,46 +182,14 @@ function AccountFolders({
 }
 
 /** Panel de carpetas: un bloque por buzón, plegable. */
-/** Para administradores: conectar un buzón entrando con la cuenta del proveedor. */
-function ConnectMailbox({ onError }: { onError: (message: string) => void }) {
-  const providers = useQuery({ queryKey: ["oauth-providers"], queryFn: api.oauthProviders });
-  if (!providers.data || providers.data.length === 0) return null;
-  const connect = (id: string) => {
-    api
-      .oauthStart(id)
-      // Se sale a la página del proveedor; al volver, el buzón ya está conectado.
-      .then(({ url }) => window.location.assign(url))
-      .catch(() => onError("No se ha podido empezar la conexión. Inténtalo de nuevo."));
-  };
-  return (
-    <div className="flex flex-col gap-1 border-t border-line px-2 pt-2">
-      <span className="text-[11px] font-semibold tracking-[0.04em] text-ink-2 uppercase">
-        Conectar un buzón
-      </span>
-      {providers.data.map((provider) => (
-        <button
-          key={provider.id}
-          type="button"
-          onClick={() => connect(provider.id)}
-          className="h-7 truncate rounded-md border border-line-strong bg-panel px-2 text-left text-xs text-ink hover:bg-line-soft"
-        >
-          Cuenta de {provider.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function FolderPanel({
   accounts,
   onCompose,
   isAdmin,
-  onError,
 }: {
   accounts: Account[];
   onCompose: () => void;
   isAdmin: boolean;
-  onError: (message: string) => void;
 }) {
   const url = useUrlState();
   const [closed, setClosed] = useState<Set<string>>(new Set());
@@ -264,11 +232,23 @@ export function FolderPanel({
       ))}
       {accounts.length === 0 && (
         <p className="m-0 px-2 text-xs leading-normal text-ink-2">
-          Todavía no tienes ningún buzón asignado. Pídeselo a tu administrador.
+          {isAdmin ? (
+            <>
+              Todavía no hay buzones.{" "}
+              <button
+                type="button"
+                onClick={() => navigate({ view: "settings", sub: "buzones", messageId: null })}
+                className="border-0 bg-transparent p-0 font-semibold text-accent"
+              >
+                Conectar uno
+              </button>
+            </>
+          ) : (
+            "Todavía no tienes ningún buzón asignado. Pídeselo a tu administrador."
+          )}
         </p>
       )}
       <div className="grow" />
-      {isAdmin && <ConnectMailbox onError={onError} />}
       {historyPending && (
         <p className="m-0 border-t border-line px-2 pt-2 text-[11px] leading-[1.45] text-ink-2">
           Trayendo el histórico de este buzón. Ya puedes trabajar.

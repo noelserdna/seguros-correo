@@ -118,3 +118,44 @@ export function toWho(who: string | null | undefined, fallback = "a un tercero")
   if (!who) return fallback;
   return who.startsWith("el ") ? `al ${who.slice(3)}` : `a ${who}`;
 }
+
+const WAITS_ON: Record<string, string> = {
+  cliente: "al cliente",
+  aseguradora: "a la aseguradora",
+  aseguradora_contraria: "a la aseguradora contraria",
+  perito: "al perito",
+  taller: "al taller",
+  abogado: "al abogado",
+  policia: "a la policía o el juzgado",
+  medico: "al médico",
+  grua: "a la grúa",
+  otro: "a un tercero",
+};
+
+/** Una tarea de plantilla en una frase: «Gestor · espera al perito · 7 d hábiles tras T6». */
+export function templateTaskSummary(task: {
+  ownerRule?: string | null;
+  waitsOnRole?: string | null;
+  after?: string[];
+  dueAnchor?: string;
+  dueDays?: number | null;
+  dueUnit?: string;
+  chaseDays?: number | null;
+}): string {
+  const parts = [task.ownerRule === "gestor" ? "Gestor" : "Sin responsable"];
+  if (task.waitsOnRole) parts.push(`espera ${WAITS_ON[task.waitsOnRole] ?? "a un tercero"}`);
+  if (task.dueDays == null) parts.push("sin plazo");
+  else {
+    const amount = `${task.dueDays} d${task.dueUnit === "habiles" ? " hábiles" : ""}`;
+    const after = task.after ?? [];
+    const from =
+      task.dueAnchor === "siniestro"
+        ? " desde el siniestro"
+        : task.dueAnchor === "apertura" || after.length === 0
+          ? " desde la apertura"
+          : ` tras ${after.join(", ")}`;
+    parts.push(amount + from);
+  }
+  if (task.chaseDays) parts.push(`reclamar cada ${task.chaseDays} d hábiles`);
+  return parts.join(" · ");
+}

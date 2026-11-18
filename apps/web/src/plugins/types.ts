@@ -24,8 +24,27 @@ export type WebPlugin = {
    * panel de carpetas. Si un módulo tiene `Page`, no usa `View`.
    */
   Page?: ComponentType<{ isAdmin: boolean; userId: string }>;
-  /** Apartado propio en la pantalla de Configuración. */
-  SettingsSection?: ComponentType<{ isAdmin: boolean }>;
+  /** Apartados propios en el menú de Configuración. */
+  settings?: SettingsPage[];
+  /** Bloque dentro del apartado «Lectura de documentos» (p. ej. una cola de lectura). */
+  DocumentsSection?: ComponentType<{ isAdmin: boolean }>;
   /** Hueco 4: sección en el panel de contexto. */
   ContextSection?: ComponentType<{ message: MessageDetail; onSelect: (messageId: string) => void }>;
+};
+
+/** Grupos del menú de Configuración, en este orden. */
+export const SETTINGS_GROUPS = ["Correo", "Expedientes", "Tramitación", "Instalación"] as const;
+export type SettingsGroup = (typeof SETTINGS_GROUPS)[number];
+
+/** Un apartado de Configuración: una entrada del menú y su página. */
+export type SettingsPage = {
+  id: string;
+  group: SettingsGroup;
+  label: string;
+  description: string;
+  /** Solo lo cambia un administrador; los demás lo consultan y ven un candado. */
+  adminOnly?: boolean;
+  /** Ocupa todo el ancho; si no, el contenido se queda en 800 px. */
+  wide?: boolean;
+  Component: ComponentType<{ isAdmin: boolean }>;
 };

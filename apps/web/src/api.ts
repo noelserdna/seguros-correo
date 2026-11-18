@@ -11,6 +11,20 @@ export type Account = {
   state: AccountState;
   lastError: string | null;
   lastSyncAt: string | null;
+  authType: "password" | "oauth_microsoft" | "oauth_google";
+  /** Lo ve más de una persona. */
+  shared: boolean;
+};
+
+export type NewAccount = {
+  name: string;
+  email: string;
+  imapHost: string;
+  imapPort: number;
+  smtpHost: string;
+  smtpPort: number;
+  username: string;
+  password: string;
 };
 
 export type Folder = {
@@ -341,6 +355,7 @@ export const api = {
   oauthComplete: (params: { state?: string; code?: string; error?: string }) =>
     post<{ email: string }>("/admin/oauth/complete", params),
   oauthStart: (provider: string) => post<{ url: string }>(`/admin/oauth/${provider}/start`, {}),
+  createAccount: (input: NewAccount) => post<{ account: Account }>("/admin/accounts", input),
   undo: (actionId: string) => post<ActionReply>(`/actions/${actionId}/undo`, {}),
   processing: () => request<ProcessingSummary>("/processing"),
   modules: () =>

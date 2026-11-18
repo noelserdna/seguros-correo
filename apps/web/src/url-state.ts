@@ -9,7 +9,7 @@ export type UrlState = {
   messageId: string | null;
   /** Módulo elegido en el riel cuando la vista es la de un plugin. */
   pluginId: string | null;
-  /** Sitio dentro de la página de un plugin (p. ej. «cartera» o «exp:<id>»). */
+  /** Sitio dentro de una página: de un plugin («cartera», «exp:<id>») o de Configuración. */
   sub: string | null;
   /** Correo que se está escribiendo; ocupa el panel de lectura. */
   composeId: string | null;
@@ -64,7 +64,8 @@ function write(state: UrlState, replace: boolean): void {
   if (state.messageId) params.set("m", state.messageId);
   if (state.composeId) params.set("r", state.composeId);
   if (state.view === "plugin" && state.pluginId) params.set("p", state.pluginId);
-  if (state.view === "plugin" && state.sub) params.set("t", state.sub);
+  if ((state.view === "plugin" || state.view === "settings") && state.sub)
+    params.set("t", state.sub);
   if (state.view === "search") {
     if (state.q) params.set("q", state.q);
     if (state.from) params.set("de", state.from);

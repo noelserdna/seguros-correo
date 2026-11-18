@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiError, apiDelete, apiGet, apiPost, apiPut, type MessageDetail } from "../api.ts";
 import { Confirm } from "../components/Confirm.tsx";
 import { Icon } from "../components/Icon.tsx";
+import { CatalogList } from "../components/settings.tsx";
 import { displayName, formatListDate } from "../format.ts";
 import type { WebPlugin } from "./types.ts";
 
@@ -291,119 +292,47 @@ function InsurerSelect({ item }: { item: Case }) {
   );
 }
 
-/** Apartado de Configuración: el catálogo de aseguradoras. */
-function InsurerSettings({ isAdmin }: { isAdmin: boolean }) {
+/** Apartado de Configuración: las listas que se eligen en cada expediente. */
+function Catalogs({ isAdmin }: { isAdmin: boolean }) {
   const queryClient = useQueryClient();
   const insurers = useInsurers();
-  const [name, setName] = useState("");
-  const [failed, setFailed] = useState("");
-  const [removing, setRemoving] = useState<Insurer | null>(null);
+  const types = useQuery({
+    queryKey: [...KEY, "case-types"],
+    queryFn: () =>
+      apiGet<{ caseTypes: { id: string; name: string; caseCount: number }[] }>(
+        `${BASE}/case-types`,
+      ),
+  });
   const refresh = () => queryClient.invalidateQueries({ queryKey: KEY });
-  const fail = (error: unknown) =>
-    setFailed(error instanceof ApiError ? error.message : "No se ha podido guardar el cambio.");
-
-  const add = (event: FormEvent) => {
-    event.preventDefault();
-    if (!name.trim()) return;
-    setFailed("");
-    apiPost(`${BASE}/insurers`, { name })
-      .then(() => {
-        setName("");
-        return refresh();
-      })
-      .catch(fail);
-  };
-  const remove = () => {
-    if (!removing) return;
-    apiDelete(`${BASE}/insurers/${removing.id}`)
-      .then(() => {
-        setRemoving(null);
-        return refresh();
-      })
-      .catch((error: unknown) => {
-        setRemoving(null);
-        fail(error);
-      });
-  };
-  const list = insurers.data?.insurers ?? [];
-
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-line p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="m-0 text-[15px] font-semibold">Aseguradoras</h2>
-        <p className="m-0 text-xs leading-normal text-ink-2">
-          Las que aparecen en el desplegable «Aseguradora» de cada expediente.
-        </p>
-      </div>
-      {isAdmin && (
-        <form onSubmit={add} className="flex gap-2">
-          <label htmlFor="nueva-aseguradora" className="sr-only">
-            Nombre de la aseguradora
-          </label>
-          <input
-            id="nueva-aseguradora"
-            type="text"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Nombre de la aseguradora"
-            className="h-9 min-w-0 grow rounded-md border border-line-strong bg-panel px-2.5 text-[13px] text-ink"
-          />
-          <button
-            type="submit"
-            className="h-9 rounded-md border-0 bg-accent px-3.5 font-semibold text-white"
-          >
-            Añadir
-          </button>
-        </form>
-      )}
-      {failed && (
-        <p role="alert" className="m-0 text-xs text-bad-ink">
-          {failed}
-        </p>
-      )}
-      {insurers.isSuccess && list.length === 0 && (
-        <p className="m-0 text-xs text-ink-2">Todavía no hay ninguna.</p>
-      )}
-      <ul className="m-0 flex list-none flex-col p-0">
-        {list.map((entry) => (
-          <li
-            key={entry.id}
-            className="flex items-center gap-3 border-t border-line-soft py-2 first:border-t-0"
-          >
-            <span className="min-w-0 grow truncate">{entry.name}</span>
-            <span className="text-xs whitespace-nowrap text-ink-2">
-              {entry.caseCount === 1 ? "1 expediente" : `${entry.caseCount} expedientes`}
-            </span>
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setRemoving(entry)}
-                className="h-7 rounded-md border border-line-strong bg-panel px-2 text-xs font-semibold text-ink hover:bg-ground"
-              >
-                Quitar
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
-      {removing && (
-        <Confirm
-          title={`¿Quitar «${removing.name}» de las aseguradoras?`}
-          confirmLabel="Quitar aseguradora"
-          danger
-          onConfirm={remove}
-          onCancel={() => setRemoving(null)}
-        >
-          <p className="m-0">
-            {removing.caseCount === 0
-              ? "Ningún expediente la tiene asignada."
-              : removing.caseCount === 1
-                ? "Hay 1 expediente que la tiene asignada: se quedará sin aseguradora. El expediente y sus correos no se tocan."
-                : `Hay ${removing.caseCount} expedientes que la tienen asignada: se quedarán sin aseguradora. Los expedientes y sus correos no se tocan.`}
-          </p>
-        </Confirm>
-      )}
-    </section>
+    <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
+      <CatalogList
+        title="Aseguradoras"
+        description="Las del desplegable «Aseguradora» de cada expediente."
+        items={insurers.data?.insurers ?? []}
+        loaded={insurers.isSuccess}
+        isAdmin={isAdmin}
+        placeholder="Nombre de la aseguradora"
+        noun="aseguradora"
+        removeEffect={(n) =>
+          n === 1 ? "se quedará sin aseguradora." : "se quedarán sin aseguradora."
+        }
+        onAdd={(name) => apiPost(`${BASE}/insurers`, { name }).then(refresh)}
+        onRemove={(id) => apiDelete(`${BASE}/insurers/${id}`).then(refresh)}
+      />
+      <CatalogList
+        title="Tipos de expediente"
+        description="Con qué tipo se abre cada expediente."
+        items={types.data?.caseTypes ?? []}
+        loaded={types.isSuccess}
+        isAdmin={isAdmin}
+        placeholder="Nombre del tipo"
+        noun="tipo"
+        removeEffect={(n) => (n === 1 ? "se quedará sin tipo." : "se quedarán sin tipo.")}
+        onAdd={(name) => apiPost(`${BASE}/case-types`, { name }).then(refresh)}
+        onRemove={(id) => apiDelete(`${BASE}/case-types/${id}`).then(refresh)}
+      />
+    </div>
   );
 }
 
@@ -523,7 +452,16 @@ function CaseMenu({
 export const expedientesPlugin: WebPlugin = {
   id: "expedientes",
   rail: { icon: "case", label: "Expedientes" },
-  SettingsSection: InsurerSettings,
+  settings: [
+    {
+      id: "catalogos",
+      group: "Expedientes",
+      label: "Aseguradoras y tipos",
+      description: "Las listas que se eligen al abrir o completar un expediente.",
+      adminOnly: true,
+      Component: Catalogs,
+    },
+  ],
 
   View({ selectedId, onSelect }) {
     const [openId, setOpenId] = useState<string | null>(null);

@@ -7,6 +7,7 @@ import {
   nextStepText,
   taskStatusText,
   textToHtml,
+  templateTaskSummary,
   toWho,
 } from "./logic.ts";
 
@@ -114,5 +115,25 @@ describe("toWho", () => {
     expect(toWho("el cliente")).toBe("al cliente");
     expect(toWho("Peritaciones Norte")).toBe("a Peritaciones Norte");
     expect(toWho(null)).toBe("a un tercero");
+  });
+});
+
+describe("templateTaskSummary", () => {
+  it("resume una tarea de plantilla en una frase", () => {
+    expect(
+      templateTaskSummary({
+        ownerRule: "gestor",
+        waitsOnRole: "perito",
+        after: ["T6"],
+        dueAnchor: "lista",
+        dueDays: 7,
+        dueUnit: "habiles",
+        chaseDays: 7,
+      }),
+    ).toBe("Gestor · espera al perito · 7 d hábiles tras T6 · reclamar cada 7 d hábiles");
+    expect(templateTaskSummary({ dueAnchor: "siniestro", dueDays: 7 })).toBe(
+      "Sin responsable · 7 d desde el siniestro",
+    );
+    expect(templateTaskSummary({ ownerRule: "gestor" })).toBe("Gestor · sin plazo");
   });
 });

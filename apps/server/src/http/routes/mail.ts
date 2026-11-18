@@ -40,7 +40,11 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
   app.get("/accounts", async (request) => {
     const { user } = requireSession(request);
     const rows = await db
-      .select(publicAccount)
+      .select({
+        ...publicAccount,
+        // Compartido: lo ve más de una persona.
+        shared: sql<boolean>`(select count(*) from account_access shared where shared.account_id = ${accounts.id}) > 1`,
+      })
       .from(accounts)
       .innerJoin(accountAccess, eq(accountAccess.accountId, accounts.id))
       .where(eq(accountAccess.userId, user.id))

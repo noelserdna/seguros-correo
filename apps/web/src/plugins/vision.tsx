@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "../api.ts";
+import { Icon } from "../components/Icon.tsx";
 import type { WebPlugin } from "./types.ts";
 
 type Job = {
@@ -52,9 +53,9 @@ function VisionQueue({ isAdmin }: { isAdmin: boolean }) {
   const failed = count("failed")?.documents ?? 0;
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-line p-4">
+    <section className="flex min-w-0 flex-col gap-3">
       <div className="flex flex-col gap-1">
-        <h2 className="m-0 text-sm font-semibold">Cola del modelo de visión</h2>
+        <h3 className="m-0 text-sm font-semibold">Visión: fotos, planos y escaneados</h3>
         <p className="m-0 text-xs leading-normal text-ink-2">
           Lee fotos, planos y escaneados: copia su texto y anota qué contienen. Cada documento se
           lee una vez aunque venga en varios correos.
@@ -66,6 +67,12 @@ function VisionQueue({ isAdmin }: { isAdmin: boolean }) {
             </>
           )}
         </p>
+        {data && !/localhost|127\.0\.0\.1/.test(data.service) && (
+          <p className="m-0 mt-1 flex items-start gap-1.5 rounded-md bg-warn px-2.5 py-2 text-xs text-warn-ink">
+            <Icon name="triangle" size={13} className="mt-px shrink-0 text-flag" />
+            Envía las imágenes a un servicio externo: solo para pruebas con datos inventados.
+          </p>
+        )}
         {data && !data.running && (
           <p role="alert" className="m-0 text-xs font-semibold text-bad-ink">
             Parada: falta la clave del servicio en la configuración del servidor.
@@ -159,5 +166,5 @@ function VisionQueue({ isAdmin }: { isAdmin: boolean }) {
 
 export const visionPlugin: WebPlugin = {
   id: "vision",
-  SettingsSection: VisionQueue,
+  DocumentsSection: VisionQueue,
 };

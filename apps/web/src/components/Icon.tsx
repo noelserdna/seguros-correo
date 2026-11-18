@@ -237,6 +237,19 @@ const PATHS = {
     </>
   ),
   plus: <path d="M8 3v10M3 8h10" />,
+  lock: (
+    <>
+      <path d="M4 7.5h8v6H4z" />
+      <path d="M5.8 7.5V5.5a2.2 2.2 0 0 1 4.4 0v2" />
+    </>
+  ),
+  server: (
+    <>
+      <path d="M2.5 3h11v4h-11zM2.5 9h11v4h-11z" />
+      <path d="M5 5h.1M5 11h.1" strokeWidth="2" />
+    </>
+  ),
+  cloud: <path d="M4.5 12.5h7a3 3 0 0 0 .4-6 4 4 0 0 0-7.7 1A2.5 2.5 0 0 0 4.5 12.5z" />,
   more: (
     <>
       <circle cx="4" cy="8" r=".7" fill="currentColor" />
