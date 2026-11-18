@@ -11,7 +11,7 @@ export function usePluginLabels(messageIds: string[]): Map<string, string[]> {
   // de estas llamadas es siempre el mismo.
   for (const plugin of plugins) {
     const labels = plugin.useLabels?.(messageIds);
-    labels?.forEach((text, id) => merged.set(id, [...(merged.get(id) ?? []), text]));
+    labels?.forEach((texts, id) => merged.set(id, [...(merged.get(id) ?? []), ...texts]));
   }
   return merged;
 }

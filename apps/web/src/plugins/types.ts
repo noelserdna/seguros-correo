@@ -16,7 +16,7 @@ export type WebPlugin = {
     onSelect: (messageId: string) => void;
   }>;
   /** Hueco 2: etiqueta en las filas de la lista. Recibe los correos visibles. */
-  useLabels?: (messageIds: string[]) => Map<string, string>;
+  useLabels?: (messageIds: string[]) => Map<string, string[]>;
   /** Hueco 3: acción en el extremo derecho de la barra del correo abierto. */
   ToolbarAction?: ComponentType<{ message: MessageDetail; openContext: () => void }>;
   /** Hueco 4: sección en el panel de contexto. */

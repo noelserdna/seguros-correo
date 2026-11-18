@@ -1,11 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { apiGet, apiPost } from "../api.ts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ApiError, apiDelete, apiGet, apiPost, type MessageDetail } from "../api.ts";
+import { Confirm } from "../components/Confirm.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { displayName, formatListDate } from "../format.ts";
 import type { WebPlugin } from "./types.ts";
 
-/** Plugin de demostración: expedientes. Usa solo sus propias rutas y los huecos de la interfaz. */
+/**
+ * Plugin de expedientes. Un expediente agrupa correos de cualquier buzón; un correo
+ * puede estar en varios. Usa solo sus propias rutas y los huecos de la interfaz.
+ */
 
 type Case = { id: string; number: string; title: string };
 type CaseSummary = Case & { messageCount: number; lastMessageAt: string | null };
@@ -16,8 +20,9 @@ type CaseMessage = {
   fromAddress: string;
   internalDate: string;
   how: "manual" | "thread" | "reference";
+  mailbox: string;
 };
-type CaseOfMessage = { case: Case | null; messages: CaseMessage[] };
+type CaseWithMessages = { case: Case; messages: CaseMessage[] };
 
 const BASE = "/plugins/demo";
 const KEY = ["plugins", "demo"] as const;
@@ -27,40 +32,273 @@ const HOW: Record<string, string> = {
   reference: "por el número en el asunto",
 };
 
-const useCaseOf = (messageId: string) =>
+const useCasesOf = (messageId: string) =>
   useQuery({
     queryKey: [...KEY, "by-message", messageId],
-    queryFn: () => apiGet<CaseOfMessage>(`${BASE}/by-message/${messageId}`),
+    queryFn: () => apiGet<{ cases: CaseWithMessages[] }>(`${BASE}/by-message/${messageId}`),
   });
+
+const useAllCases = (enabled = true) =>
+  useQuery({
+    queryKey: [...KEY, "cases"],
+    queryFn: () => apiGet<{ cases: CaseSummary[] }>(`${BASE}/cases`),
+    enabled,
+  });
+
+/** Lo que se va a hacer con un correo y un expediente, pendiente de confirmar. */
+type Pending =
+  | { kind: "add"; target: Case; messageId: string; subject: string }
+  | { kind: "remove"; target: Case; messageId: string; subject: string }
+  | { kind: "create"; messageId: string; subject: string };
+
+/** Pide confirmación y ejecuta: añadir a un expediente, quitar de él o crear uno nuevo. */
+function useCaseChanges() {
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState("");
+
+  const run = () => {
+    if (!pending) return;
+    setBusy(true);
+    setFailed("");
+    const call =
+      pending.kind === "add"
+        ? apiPost(`${BASE}/cases/${pending.target.id}/messages`, { messageId: pending.messageId })
+        : pending.kind === "remove"
+          ? apiDelete(`${BASE}/cases/${pending.target.id}/messages/${pending.messageId}`)
+          : apiPost(`${BASE}/cases`, { messageId: pending.messageId });
+    call
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: KEY });
+        setPending(null);
+      })
+      .catch((error: unknown) =>
+        setFailed(error instanceof ApiError ? error.message : "No se ha podido hacer el cambio."),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  let dialog: ReactNode = null;
+  if (pending) {
+    const subject = pending.subject || "(sin asunto)";
+    const close = () => {
+      setPending(null);
+      setFailed("");
+    };
+    const problem = failed && (
+      <p role="alert" className="m-0 mt-2 text-xs text-bad-ink">
+        {failed}
+      </p>
+    );
+    dialog =
+      pending.kind === "remove" ? (
+        <Confirm
+          title={`¿Quitar este correo de ${pending.target.number}?`}
+          confirmLabel="Quitar del expediente"
+          danger
+          busy={busy}
+          onConfirm={run}
+          onCancel={close}
+        >
+          <p className="m-0">
+            «{subject}» dejará de estar en el expediente «{pending.target.title}». Solo se quita
+            este correo; el resto de su conversación sigue en el expediente. No se borra ni se
+            mueve, y podrás volver a añadirlo.
+          </p>
+          {problem}
+        </Confirm>
+      ) : pending.kind === "add" ? (
+        <Confirm
+          title={`¿Añadir este correo a ${pending.target.number}?`}
+          confirmLabel="Añadir al expediente"
+          busy={busy}
+          onConfirm={run}
+          onCancel={close}
+        >
+          <p className="m-0">
+            «{subject}» y el resto de su conversación pasarán a formar parte del expediente «
+            {pending.target.title}». Los correos no cambian de carpeta ni de buzón, y los que
+            lleguen después a esa conversación se añadirán solos.
+          </p>
+          {problem}
+        </Confirm>
+      ) : (
+        <Confirm
+          title="¿Crear un expediente nuevo con este correo?"
+          confirmLabel="Crear expediente"
+          busy={busy}
+          onConfirm={run}
+          onCancel={close}
+        >
+          <p className="m-0">
+            Se llamará «{subject}» y entrará con toda la conversación de este correo. Los correos
+            que lleguen después a esa conversación se añadirán solos.
+          </p>
+          {problem}
+        </Confirm>
+      );
+  }
+  return { ask: setPending, dialog };
+}
 
 function MessageLine({
   entry,
   current,
   onSelect,
+  onRemove,
 }: {
   entry: CaseMessage;
   current: boolean;
   onSelect: (id: string) => void;
+  onRemove: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(entry.id)}
-      aria-current={current ? "true" : undefined}
-      className={`flex flex-col gap-0.5 rounded-md border px-2.5 py-2 text-left text-xs text-ink ${
-        current ? "border-accent bg-accent-soft" : "border-line bg-panel hover:bg-ground"
+    <div
+      className={`flex items-stretch rounded-md border ${
+        current ? "border-accent bg-accent-soft" : "border-line bg-panel"
       }`}
     >
-      <span className="flex gap-2">
-        <span className="min-w-0 grow truncate font-semibold">
-          {displayName(entry.fromName, entry.fromAddress)}
+      <button
+        type="button"
+        onClick={() => onSelect(entry.id)}
+        aria-current={current ? "true" : undefined}
+        className="flex min-w-0 grow flex-col gap-0.5 rounded-l-md border-0 bg-transparent px-2.5 py-2 text-left text-xs text-ink hover:bg-ground"
+      >
+        <span className="flex gap-2">
+          <span className="min-w-0 grow truncate font-semibold">
+            {displayName(entry.fromName, entry.fromAddress)}
+          </span>
+          <span className="whitespace-nowrap text-ink-2">{formatListDate(entry.internalDate)}</span>
         </span>
-        <span className="whitespace-nowrap text-ink-2">{formatListDate(entry.internalDate)}</span>
-      </span>
-      <span className="truncate text-ink-2">
-        {entry.subject || "(sin asunto)"} · {HOW[entry.how] ?? entry.how}
-      </span>
-    </button>
+        <span className="truncate">{entry.subject || "(sin asunto)"}</span>
+        <span className="truncate text-ink-2">
+          {HOW[entry.how] ?? entry.how} · {entry.mailbox}
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Quitar del expediente: ${entry.subject || "(sin asunto)"}`}
+        title="Quitar del expediente"
+        className="flex w-8 shrink-0 items-center justify-center rounded-r-md border-0 border-l border-line bg-transparent text-ink-2 hover:bg-ground hover:text-bad-ink"
+      >
+        <Icon name="close" size={12} />
+      </button>
+    </div>
+  );
+}
+
+/** Menú de la barra: en qué expedientes está el correo, y añadirlo a otro o a uno nuevo. */
+function CaseMenu({
+  message,
+  current,
+  onAsk,
+  onClose,
+}: {
+  message: MessageDetail;
+  current: Case[];
+  onAsk: (pending: Pending) => void;
+  onClose: () => void;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const [filter, setFilter] = useState("");
+  const all = useAllCases();
+  const inside = new Set(current.map((entry) => entry.id));
+  const text = filter.trim().toLowerCase();
+  const others = (all.data?.cases ?? []).filter(
+    (entry) =>
+      !inside.has(entry.id) &&
+      (!text ||
+        entry.number.toLowerCase().includes(text) ||
+        entry.title.toLowerCase().includes(text)),
+  );
+
+  useEffect(() => {
+    const onDown = (event: MouseEvent) => {
+      if (!box.current?.parentElement?.contains(event.target as Node)) onClose();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const subject = message.subject;
+  const heading =
+    "px-2 pt-1.5 pb-1 text-[11px] font-semibold tracking-[0.04em] text-ink-2 uppercase";
+  return (
+    <div
+      ref={box}
+      role="dialog"
+      aria-label="Expedientes de este correo"
+      className="absolute top-[34px] right-0 z-20 flex max-h-[460px] w-80 flex-col overflow-y-auto rounded-lg border border-line-strong bg-panel p-1.5 text-[13px] shadow-[0_8px_24px_rgba(27,35,48,0.14)]"
+    >
+      {current.length > 0 && (
+        <>
+          <div className={heading}>Este correo está en</div>
+          {current.map((entry) => (
+            <div key={entry.id} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+              <span className="min-w-0 grow">
+                <span className="block font-semibold">{entry.number}</span>
+                <span className="block truncate text-xs text-ink-2">{entry.title}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  onAsk({ kind: "remove", target: entry, messageId: message.id, subject })
+                }
+                className="h-7 shrink-0 rounded-md border border-line-strong bg-panel px-2 text-xs font-semibold text-ink hover:bg-ground"
+              >
+                Quitar
+              </button>
+            </div>
+          ))}
+          <div className="my-1 h-px bg-line-soft" />
+        </>
+      )}
+
+      <div className={heading}>Añadir a un expediente</div>
+      <input
+        type="search"
+        value={filter}
+        onChange={(event) => setFilter(event.target.value)}
+        aria-label="Buscar expediente por número o título"
+        placeholder="Buscar por número o título"
+        className="mx-2 mb-1 h-8 rounded-md border border-line-strong bg-panel px-2 text-[13px] text-ink"
+      />
+      {others.map((entry) => (
+        <button
+          key={entry.id}
+          type="button"
+          onClick={() => onAsk({ kind: "add", target: entry, messageId: message.id, subject })}
+          className="flex flex-col rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-ink hover:bg-accent-soft"
+        >
+          <span className="font-semibold">{entry.number}</span>
+          <span className="truncate text-xs text-ink-2">{entry.title}</span>
+        </button>
+      ))}
+      {all.isSuccess && others.length === 0 && (
+        <p className="m-0 px-2 py-1.5 text-xs text-ink-2">
+          {text ? "Ningún expediente coincide." : "No hay otros expedientes."}
+        </p>
+      )}
+
+      <div className="my-1 h-px bg-line-soft" />
+      <button
+        type="button"
+        onClick={() => onAsk({ kind: "create", messageId: message.id, subject })}
+        className="flex items-center gap-2 rounded-md border-0 bg-transparent px-2 py-2 text-left font-semibold text-accent hover:bg-accent-soft"
+      >
+        <Icon name="case" />
+        Crear un expediente nuevo con este correo
+      </button>
+    </div>
   );
 }
 
@@ -68,20 +306,15 @@ export const demoPlugin: WebPlugin = {
   id: "demo",
   rail: { icon: "case", label: "Expedientes" },
 
-  View({ accountId, selectedId, onSelect }) {
+  View({ selectedId, onSelect }) {
     const [openId, setOpenId] = useState<string | null>(null);
-    const cases = useQuery({
-      queryKey: [...KEY, "cases", accountId],
-      queryFn: () =>
-        apiGet<{ cases: CaseSummary[] }>(
-          `${BASE}/cases${accountId ? `?accountId=${accountId}` : ""}`,
-        ),
-    });
+    const cases = useAllCases();
     const detail = useQuery({
       queryKey: [...KEY, "case", openId],
-      queryFn: () => apiGet<{ messages: CaseMessage[] }>(`${BASE}/cases/${openId}`),
+      queryFn: () => apiGet<CaseWithMessages>(`${BASE}/cases/${openId}`),
       enabled: Boolean(openId),
     });
+    const changes = useCaseChanges();
     const list = cases.data?.cases ?? [];
 
     return (
@@ -98,8 +331,8 @@ export const demoPlugin: WebPlugin = {
               <Icon name="case" size={28} className="text-ink-2" />
               <h3 className="m-0 text-sm font-semibold">Todavía no hay expedientes</h3>
               <p className="m-0 text-xs leading-normal text-ink-2">
-                Abre un correo y pulsa «Crear expediente» en su barra. Entrará con toda su
-                conversación.
+                Abre un correo y pulsa «Expediente» en su barra para crear uno o añadirlo a uno que
+                ya exista.
               </p>
             </div>
           )}
@@ -137,14 +370,29 @@ export const demoPlugin: WebPlugin = {
                         entry={entry}
                         current={entry.id === selectedId}
                         onSelect={onSelect}
+                        onRemove={() =>
+                          changes.ask({
+                            kind: "remove",
+                            target: item,
+                            messageId: entry.id,
+                            subject: entry.subject,
+                          })
+                        }
                       />
                     ))}
+                    {detail.isSuccess && detail.data.messages.length === 0 && (
+                      <p className="m-0 text-xs text-ink-2">
+                        Este expediente no tiene correos. Añádelos desde la barra de cualquier
+                        correo.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
             );
           })}
         </div>
+        {changes.dialog}
       </section>
     );
   },
@@ -154,78 +402,97 @@ export const demoPlugin: WebPlugin = {
     const labels = useQuery({
       queryKey: [...KEY, "labels", ids],
       queryFn: () =>
-        apiPost<{ labels: Record<string, { number: string }> }>(`${BASE}/labels`, {
+        apiPost<{ labels: Record<string, string[]> }>(`${BASE}/labels`, {
           messageIds: ids.slice(0, 500),
         }),
       enabled: ids.length > 0,
       placeholderData: (previous) => previous,
     });
-    return useMemo(
-      () =>
-        new Map(Object.entries(labels.data?.labels ?? {}).map(([id, label]) => [id, label.number])),
-      [labels.data],
-    );
+    return useMemo(() => new Map(Object.entries(labels.data?.labels ?? {})), [labels.data]);
   },
 
-  ToolbarAction({ message, openContext }) {
-    const queryClient = useQueryClient();
-    const current = useCaseOf(message.id);
-    const create = useMutation({
-      mutationFn: () => apiPost<{ case: Case }>(`${BASE}/cases`, { messageId: message.id }),
-      onSuccess: () => {
-        void queryClient.invalidateQueries({ queryKey: KEY });
-        openContext();
-      },
-    });
-    if (current.data?.case) {
-      return (
+  ToolbarAction({ message }) {
+    const [open, setOpen] = useState(false);
+    const current = useCasesOf(message.id);
+    const changes = useCaseChanges();
+    useEffect(() => setOpen(false), [message.id]);
+    const mine = (current.data?.cases ?? []).map((entry) => entry.case);
+    const label =
+      mine.length === 0
+        ? "Expediente"
+        : mine.length === 1
+          ? mine[0]!.number
+          : `${mine.length} expedientes`;
+
+    return (
+      <span className="relative">
         <button
           type="button"
-          onClick={openContext}
-          title="Ver el expediente en el panel de contexto"
-          className="flex h-[30px] items-center gap-1.5 rounded-md border-0 bg-accent-soft px-2.5 font-semibold whitespace-nowrap text-accent-strong"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          title="Añadir este correo a un expediente, o quitarlo"
+          className={`flex h-[30px] items-center gap-1.5 rounded-md px-2.5 font-semibold whitespace-nowrap ${
+            mine.length > 0
+              ? "border-0 bg-accent-soft text-accent-strong"
+              : "border border-line-strong bg-panel text-ink hover:bg-ground"
+          }`}
         >
           <Icon name="case" />
-          {current.data.case.number}
+          {label}
+          <Icon name="down" size={12} />
         </button>
-      );
-    }
-    return (
-      <button
-        type="button"
-        onClick={() => create.mutate()}
-        disabled={create.isPending || current.isLoading}
-        className="flex h-[30px] items-center gap-1.5 rounded-md border border-line-strong bg-panel px-2.5 font-semibold whitespace-nowrap text-ink hover:bg-ground disabled:opacity-60"
-      >
-        <Icon name="case" />
-        {create.isError ? "No se pudo crear. Reintentar" : "Crear expediente"}
-      </button>
+        {open && (
+          <CaseMenu
+            message={message}
+            current={mine}
+            onClose={() => setOpen(false)}
+            onAsk={(pending) => {
+              setOpen(false);
+              changes.ask(pending);
+            }}
+          />
+        )}
+        {changes.dialog}
+      </span>
     );
   },
 
   ContextSection({ message, onSelect }) {
-    const current = useCaseOf(message.id);
-    if (!current.data?.case) return null;
+    const current = useCasesOf(message.id);
+    const changes = useCaseChanges();
+    const list = current.data?.cases ?? [];
+    if (list.length === 0) return null;
     return (
-      <section className="flex flex-col gap-2">
-        <h3 className="m-0 text-[11px] font-semibold tracking-[0.04em] text-ink-2 uppercase">
-          Expediente
-        </h3>
-        <span className="font-semibold">
-          {current.data.case.number} · {current.data.case.title}
-        </span>
-        {current.data.messages.map((entry) => (
-          <MessageLine
-            key={entry.id}
-            entry={entry}
-            current={entry.id === message.id}
-            onSelect={onSelect}
-          />
+      <>
+        {list.map(({ case: item, messages }) => (
+          <section key={item.id} className="flex flex-col gap-2">
+            <h3 className="m-0 text-[11px] font-semibold tracking-[0.04em] text-ink-2 uppercase">
+              Expediente
+            </h3>
+            <span className="font-semibold">
+              {item.number} · {item.title}
+            </span>
+            {messages.map((entry) => (
+              <MessageLine
+                key={entry.id}
+                entry={entry}
+                current={entry.id === message.id}
+                onSelect={onSelect}
+                onRemove={() =>
+                  changes.ask({
+                    kind: "remove",
+                    target: item,
+                    messageId: entry.id,
+                    subject: entry.subject,
+                  })
+                }
+              />
+            ))}
+          </section>
         ))}
-        <span className="text-xs leading-normal text-ink-2">
-          Los correos nuevos de esta conversación, o con el número en el asunto, entran solos.
-        </span>
-      </section>
+        {changes.dialog}
+      </>
     );
   },
 };

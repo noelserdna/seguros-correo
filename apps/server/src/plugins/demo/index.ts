@@ -22,6 +22,8 @@ type CaseMessage = {
   fromAddress: string;
   internalDate: Date;
   how: string;
+  /** Buzón en el que está el correo: un expediente puede reunir correos de varios. */
+  mailbox: string;
 };
 
 async function setup(db: Db): Promise<void> {
@@ -36,42 +38,65 @@ async function setup(db: Db): Promise<void> {
     )`);
   await db.execute(sql`
     create table if not exists demo_case_messages (
-      message_id uuid primary key references messages(id) on delete cascade,
+      message_id uuid not null references messages(id) on delete cascade,
       case_id uuid not null references demo_cases(id) on delete cascade,
       how text not null,
+      added_by uuid,
       added_at timestamptz not null default now()
     )`);
+  // Un correo puede pertenecer a varios expedientes (antes, solo a uno).
+  await db.execute(
+    sql`alter table demo_case_messages drop constraint if exists demo_case_messages_pkey`,
+  );
+  await db.execute(sql`alter table demo_case_messages add column if not exists added_by uuid`);
+  await db.execute(sql`
+    create unique index if not exists demo_case_messages_pair
+      on demo_case_messages (case_id, message_id)`);
+  await db.execute(sql`
+    create index if not exists demo_case_messages_message on demo_case_messages (message_id)`);
   await db.execute(sql`create sequence if not exists demo_case_seq`);
 }
 
 const caseColumns = sql`c.id, c.account_id as "accountId", c.number, c.title, c.created_at as "createdAt"`;
 
-async function caseOfMessage(db: Db, messageId: string): Promise<CaseRow | null> {
+async function casesOfMessage(db: Db, messageId: string): Promise<CaseRow[]> {
   const found = await db.execute<CaseRow>(sql`
     select ${caseColumns} from demo_cases c
       join demo_case_messages cm on cm.case_id = c.id
-     where cm.message_id = ${messageId}`);
-  return found.rows[0] ?? null;
+     where cm.message_id = ${messageId}
+     order by c.created_at`);
+  return found.rows;
 }
+
+const uuids = (ids: string[]) =>
+  sql.join(
+    ids.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
 
 /**
  * Correos del expediente. La copia de Enviados y la recibida de un mismo correo
  * (misma cabecera Message-ID) cuentan como uno: se enseña el añadido a mano si lo hay.
  */
-const messagesOfCase = async (db: Db, caseId: string) =>
-  (
-    await db.execute<CaseMessage>(sql`
-      select * from (
-        select distinct on (coalesce(m.message_id_header, m.id::text))
-               m.id, m.subject, m.from_name as "fromName", m.from_address as "fromAddress",
-               m.internal_date as "internalDate", cm.how, cm.added_at
-          from demo_case_messages cm join messages m on m.id = cm.message_id
-         where cm.case_id = ${caseId}
-         order by coalesce(m.message_id_header, m.id::text),
-                  (cm.how = 'manual') desc, m.internal_date
-      ) unique_messages
-      order by "internalDate", added_at`)
-  ).rows;
+const messagesOfCase = async (db: Db, caseId: string, accountIds: string[]) =>
+  accountIds.length === 0
+    ? []
+    : (
+        await db.execute<CaseMessage>(sql`
+          select * from (
+            select distinct on (coalesce(m.message_id_header, m.id::text))
+                   m.id, m.subject, m.from_name as "fromName", m.from_address as "fromAddress",
+                   m.internal_date as "internalDate", cm.how, cm.added_at,
+                   a.email as "mailbox"
+              from demo_case_messages cm
+              join messages m on m.id = cm.message_id
+              join accounts a on a.id = m.account_id
+             where cm.case_id = ${caseId} and m.account_id in (${uuids(accountIds)})
+             order by coalesce(m.message_id_header, m.id::text),
+                      (cm.how = 'manual') desc, m.internal_date
+          ) unique_messages
+          order by "internalDate", added_at`)
+      ).rows;
 
 /** Aviso para que las pantallas abiertas se refresquen. */
 const notify = (db: Db, accountId: string, messageId?: string) =>
@@ -84,26 +109,31 @@ const notify = (db: Db, accountId: string, messageId?: string) =>
 async function onEvent(event: MailEvent, db: Db): Promise<void> {
   if (event.type !== "message.received" || !event.messageId) return;
   const [message] = await db.select().from(messages).where(eq(messages.id, event.messageId));
-  if (!message || (await caseOfMessage(db, message.id))) return;
+  if (!message) return;
 
+  // Por conversación: entra en todos los expedientes que ya tengan un correo de su hilo.
   const byThread = await db.execute<{ caseId: string }>(sql`
-    select cm.case_id as "caseId" from demo_case_messages cm
+    select distinct cm.case_id as "caseId" from demo_case_messages cm
       join messages m on m.id = cm.message_id
-     where m.thread_id = ${message.threadId} limit 1`);
-  let caseId = byThread.rows[0]?.caseId;
-  let how = "thread";
-  if (!caseId) {
+     where m.thread_id = ${message.threadId} and m.id <> ${message.id}`);
+  const targets = byThread.rows.map((row) => ({ caseId: row.caseId, how: "thread" }));
+
+  // Por el número en el asunto: da igual a qué buzón llegue.
+  if (targets.length === 0) {
     const reference = REFERENCE.exec(message.subject)?.[0].toUpperCase();
-    if (!reference) return;
-    const byNumber = await db.execute<{ id: string }>(sql`
-      select id from demo_cases where number = ${reference} and account_id = ${message.accountId}`);
-    caseId = byNumber.rows[0]?.id;
-    how = "reference";
+    if (reference) {
+      const byNumber = await db.execute<{ id: string }>(
+        sql`select id from demo_cases where number = ${reference}`,
+      );
+      if (byNumber.rows[0]) targets.push({ caseId: byNumber.rows[0].id, how: "reference" });
+    }
   }
-  if (!caseId) return;
-  await db.execute(sql`
-    insert into demo_case_messages (message_id, case_id, how)
-    values (${message.id}, ${caseId}, ${how}) on conflict do nothing`);
+  if (targets.length === 0) return;
+  for (const target of targets) {
+    await db.execute(sql`
+      insert into demo_case_messages (message_id, case_id, how)
+      values (${message.id}, ${target.caseId}, ${target.how}) on conflict do nothing`);
+  }
   await notify(db, message.accountId, message.id);
 }
 
@@ -112,6 +142,8 @@ const createBody = z.object({ messageId: z.uuid() });
 const labelsBody = z.object({ messageIds: z.array(z.uuid()).max(500) });
 const listQuery = z.object({ accountId: z.uuid().optional() });
 
+const memberParams = z.object({ id: z.uuid(), messageId: z.uuid() });
+
 export const demoPlugin: ServerPlugin = {
   id: "demo",
   setup,
@@ -119,16 +151,29 @@ export const demoPlugin: ServerPlugin = {
   routes: async (app, { context }) => {
     const { db } = context;
 
+    /** El expediente, si el usuario tiene el buzón en el que se abrió. */
+    async function loadCase(userId: string, id: string): Promise<CaseRow> {
+      const found = await db.execute<CaseRow>(
+        sql`select ${caseColumns} from demo_cases c where c.id = ${id}`,
+      );
+      const row = found.rows[0];
+      if (!row) throw notFound();
+      await assertAccess(db, userId, row.accountId);
+      return row;
+    }
+
+    async function loadMessage(userId: string, id: string) {
+      const [message] = await db.select().from(messages).where(eq(messages.id, id));
+      if (!message) throw notFound();
+      await assertAccess(db, userId, message.accountId);
+      return message;
+    }
+
     // Crear un expediente a partir de un correo: entra con toda su conversación.
     app.post("/cases", async (request) => {
       const { user } = requireSession(request);
       const { messageId } = createBody.parse(request.body);
-      const [message] = await db.select().from(messages).where(eq(messages.id, messageId));
-      if (!message) throw notFound();
-      await assertAccess(db, user.id, message.accountId);
-
-      const existing = await caseOfMessage(db, messageId);
-      if (existing) return { case: existing, created: false };
+      const message = await loadMessage(user.id, messageId);
 
       const created = await db.transaction(async (tx) => {
         const next = await tx.execute<{ n: string }>(sql`select nextval('demo_case_seq') as n`);
@@ -139,8 +184,9 @@ export const demoPlugin: ServerPlugin = {
           returning ${caseColumns}`);
         const row = inserted.rows[0]!;
         await tx.execute(sql`
-          insert into demo_case_messages (message_id, case_id, how)
-          select m.id, ${row.id}, case when m.id = ${messageId} then 'manual' else 'thread' end
+          insert into demo_case_messages (message_id, case_id, how, added_by)
+          select m.id, ${row.id}, case when m.id = ${messageId} then 'manual' else 'thread' end,
+                 ${user.id}
             from messages m
            where m.thread_id = ${message.threadId} and m.account_id = ${message.accountId}
           on conflict do nothing`);
@@ -157,73 +203,117 @@ export const demoPlugin: ServerPlugin = {
       return { case: created, created: true };
     });
 
+    // Añadir a un expediente cualquier correo que el usuario pueda ver, sea del buzón que sea.
+    // Quitar después uno suelto es una excepción: el resto de la conversación se queda.
+    app.post("/cases/:id/messages", async (request) => {
+      const { user } = requireSession(request);
+      const { id } = idParams.parse(request.params);
+      const { messageId } = createBody.parse(request.body);
+      const row = await loadCase(user.id, id);
+      const message = await loadMessage(user.id, messageId);
+      // Entra con toda su conversación, igual que al crear el expediente.
+      const added = await db.execute(sql`
+        insert into demo_case_messages (message_id, case_id, how, added_by)
+        select m.id, ${id}, case when m.id = ${messageId} then 'manual' else 'thread' end,
+               ${user.id}
+          from messages m
+         where m.thread_id = ${message.threadId} and m.account_id = ${message.accountId}
+        on conflict do nothing returning message_id`);
+      if (added.rows.length > 0) {
+        await audit(db, {
+          userId: user.id,
+          accountId: message.accountId,
+          action: "plugin.demo.message_added",
+          target: id,
+          detail: { number: row.number, messageId },
+        });
+        await notify(db, message.accountId, messageId);
+      }
+      return { case: row, added: added.rows.length > 0, count: added.rows.length };
+    });
+
+    // Quitar un correo del expediente. El correo no se toca: solo deja de estar agrupado.
+    app.delete("/cases/:id/messages/:messageId", async (request) => {
+      const { user } = requireSession(request);
+      const { id, messageId } = memberParams.parse(request.params);
+      const row = await loadCase(user.id, id);
+      const message = await loadMessage(user.id, messageId);
+      const removed = await db.execute(sql`
+        delete from demo_case_messages
+         where case_id = ${id} and message_id = ${messageId} returning message_id`);
+      if (removed.rows.length === 0) throw notFound();
+      await audit(db, {
+        userId: user.id,
+        accountId: message.accountId,
+        action: "plugin.demo.message_removed",
+        target: id,
+        detail: { number: row.number, messageId },
+      });
+      await notify(db, message.accountId, messageId);
+      return { ok: true };
+    });
+
     app.get("/cases", async (request) => {
       const { user } = requireSession(request);
-      const { accountId } = listQuery.parse(request.query);
-      let accountIds = await accessibleAccountIds(db, user.id);
-      if (accountId) accountIds = accountIds.filter((id) => id === accountId);
+      listQuery.parse(request.query);
+      const accountIds = await accessibleAccountIds(db, user.id);
       if (accountIds.length === 0) return { cases: [] };
       const rows = await db.execute(sql`
         select ${caseColumns},
                (select count(distinct coalesce(m.message_id_header, m.id::text))::int
                   from demo_case_messages cm join messages m on m.id = cm.message_id
-                 where cm.case_id = c.id) as "messageCount",
+                 where cm.case_id = c.id and m.account_id in (${uuids(accountIds)})) as "messageCount",
                (select max(m.internal_date) from demo_case_messages cm
-                  join messages m on m.id = cm.message_id where cm.case_id = c.id) as "lastMessageAt"
+                  join messages m on m.id = cm.message_id
+                 where cm.case_id = c.id and m.account_id in (${uuids(accountIds)})) as "lastMessageAt"
           from demo_cases c
-         where c.account_id in (${sql.join(
-           accountIds.map((id) => sql`${id}::uuid`),
-           sql`, `,
-         )})
-         order by "lastMessageAt" desc nulls last`);
+         where c.account_id in (${uuids(accountIds)})
+         order by "lastMessageAt" desc nulls last, c.created_at desc`);
       return { cases: rows.rows };
     });
 
     app.get("/cases/:id", async (request) => {
       const { user } = requireSession(request);
       const { id } = idParams.parse(request.params);
-      const found = await db.execute<CaseRow>(
-        sql`select ${caseColumns} from demo_cases c where c.id = ${id}`,
-      );
-      const row = found.rows[0];
-      if (!row) throw notFound();
-      await assertAccess(db, user.id, row.accountId);
-      return { case: row, messages: await messagesOfCase(db, id) };
+      const row = await loadCase(user.id, id);
+      const accountIds = await accessibleAccountIds(db, user.id);
+      return { case: row, messages: await messagesOfCase(db, id, accountIds) };
     });
 
-    // Expediente de un correo, con sus demás correos: para el panel de contexto.
+    // Expedientes de un correo, con sus demás correos: para la barra y el panel de contexto.
     app.get("/by-message/:id", async (request) => {
       const { user } = requireSession(request);
       const { id } = idParams.parse(request.params);
-      const [message] = await db.select().from(messages).where(eq(messages.id, id));
-      if (!message) throw notFound();
-      await assertAccess(db, user.id, message.accountId);
-      const row = await caseOfMessage(db, id);
-      return { case: row, messages: row ? await messagesOfCase(db, row.id) : [] };
+      await loadMessage(user.id, id);
+      const accountIds = await accessibleAccountIds(db, user.id);
+      const visible = (await casesOfMessage(db, id)).filter((row) =>
+        accountIds.includes(row.accountId),
+      );
+      return {
+        cases: await Promise.all(
+          visible.map(async (row) => ({
+            case: row,
+            messages: await messagesOfCase(db, row.id, accountIds),
+          })),
+        ),
+      };
     });
 
-    // Etiquetas para la lista: qué correos de los pedidos están en un expediente.
+    // Etiquetas para la lista: qué correos de los pedidos están en algún expediente.
     app.post("/labels", async (request) => {
       const { user } = requireSession(request);
       const { messageIds } = labelsBody.parse(request.body);
       const accountIds = await accessibleAccountIds(db, user.id);
       if (messageIds.length === 0 || accountIds.length === 0) return { labels: {} };
-      const rows = await db.execute<{ messageId: string; caseId: string; number: string }>(sql`
-        select cm.message_id as "messageId", c.id as "caseId", c.number
+      const rows = await db.execute<{ messageId: string; number: string }>(sql`
+        select cm.message_id as "messageId", c.number
           from demo_case_messages cm join demo_cases c on c.id = cm.case_id
-         where cm.message_id in (${sql.join(
-           messageIds.map((id) => sql`${id}::uuid`),
-           sql`, `,
-         )})
-           and c.account_id in (${sql.join(
-             accountIds.map((id) => sql`${id}::uuid`),
-             sql`, `,
-           )})`);
-      return {
-        labels: Object.fromEntries(
-          rows.rows.map((row) => [row.messageId, { caseId: row.caseId, number: row.number }]),
-        ),
-      };
+         where cm.message_id in (${uuids(messageIds)})
+           and c.account_id in (${uuids(accountIds)})
+         order by c.created_at`);
+      const labels: Record<string, string[]> = {};
+      for (const row of rows.rows) (labels[row.messageId] ??= []).push(row.number);
+      return { labels };
     });
   },
 };

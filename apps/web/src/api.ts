@@ -214,6 +214,7 @@ const post = <T>(path: string, body: object) =>
 /** Para los plugins: llamadas a sus propias rutas con la sesión y el token de siempre. */
 export const apiGet = <T>(path: string) => request<T>(path);
 export const apiPost = post;
+export const apiDelete = <T>(path: string) => request<T>(path, { method: "DELETE" });
 
 export const api = {
   session: () => request<Session>("/auth/session"),

@@ -7,7 +7,8 @@ import type { ImapFlow } from "imapflow";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { User } from "../src/auth/sessions.ts";
 import { createUser } from "../src/auth/users.ts";
-import { accountAccess } from "../src/db/schema.ts";
+import { eq } from "drizzle-orm";
+import { accountAccess, messages } from "../src/db/schema.ts";
 import { buildApp, CSRF_HEADER, SESSION_COOKIE } from "../src/http/app.ts";
 import type { Account } from "../src/imap/connection.ts";
 import { demoPlugin } from "../src/plugins/demo/index.ts";
@@ -38,7 +39,11 @@ let session: Login;
 
 type Login = { cookie: string; csrf: string };
 type Case = { id: string; number: string; title: string };
-type CaseDetail = { case: Case | null; messages: { subject: string; how: string }[] };
+type CaseDetail = {
+  case: Case;
+  messages: { id: string; subject: string; how: string; mailbox: string }[];
+};
+type ByMessage = { cases: CaseDetail[] };
 
 async function login(email: string): Promise<Login> {
   const response = await app.inject({
@@ -53,7 +58,7 @@ async function login(email: string): Promise<Login> {
   };
 }
 
-const call = (method: "GET" | "POST", url: string, payload?: object, as = session) =>
+const call = (method: "GET" | "POST" | "DELETE", url: string, payload?: object, as = session) =>
   app.inject({
     method,
     url,
@@ -91,6 +96,7 @@ beforeEach(async () => {
   await resetDb(env.db);
   await host.setup();
   await resetMailbox(ANA);
+  await resetMailbox(LUIS);
   outlook = await otherClient(ANA);
   account = await createTestAccount(env);
   app = await buildApp({
@@ -135,14 +141,41 @@ describe("expedientes (plugin de demostración)", () => {
       ["RE: Golpe en el camión", "thread"],
     ]);
 
-    // Pedirlo otra vez desde un correo que ya está dentro no crea otro.
-    const again = await call("POST", "/api/plugins/demo/cases", {
-      messageId: await idOf("RE: Golpe en el camión"),
+    // Un mismo correo puede estar en dos expedientes (por ejemplo, si trata de dos siniestros).
+    const second = (
+      await call("POST", "/api/plugins/demo/cases", { messageId: await idOf("Otra cosa") })
+    ).json<{ case: Case }>().case;
+    const shared = await idOf("RE: Golpe en el camión");
+    const added = await call("POST", `/api/plugins/demo/cases/${second.id}/messages`, {
+      messageId: shared,
     });
-    expect(again.json<{ case: Case; created: boolean }>()).toMatchObject({
-      created: false,
-      case: { id: body.case.id },
+    // Al añadirlo entra también el resto de su conversación.
+    expect(added.json<{ added: boolean; count: number }>()).toMatchObject({
+      added: true,
+      count: 2,
     });
+    const secondDetail = await call("GET", `/api/plugins/demo/cases/${second.id}`);
+    expect(
+      secondDetail
+        .json<CaseDetail>()
+        .messages.map((m) => m.subject)
+        .sort(),
+    ).toEqual(["Golpe en el camión", "Otra cosa", "RE: Golpe en el camión"]);
+    const repeated = await call("POST", `/api/plugins/demo/cases/${second.id}/messages`, {
+      messageId: shared,
+    });
+    expect(repeated.json<{ added: boolean }>().added).toBe(false);
+
+    const both = await call("GET", `/api/plugins/demo/by-message/${shared}`);
+    expect(both.json<ByMessage>().cases.map((entry) => entry.case.number)).toEqual([
+      body.case.number,
+      second.number,
+    ]);
+    const labels = await call("POST", "/api/plugins/demo/labels", { messageIds: [shared] });
+    expect(labels.json<{ labels: Record<string, string[]> }>().labels[shared]).toEqual([
+      body.case.number,
+      second.number,
+    ]);
   });
 
   it("asigna solos los correos que llegan después: por conversación y por número en el asunto", async () => {
@@ -182,23 +215,85 @@ describe("expedientes (plugin de demostración)", () => {
     const labels = await call("POST", "/api/plugins/demo/labels", {
       messageIds: items.map((item) => item.id),
     });
-    const labelled = labels.json<{ labels: Record<string, { number: string }> }>().labels;
-    expect(
-      items.filter((item) => labelled[item.id]?.number === opened.number).map((i) => i.subject),
-    ).toHaveLength(3);
+    const labelled = labels.json<{ labels: Record<string, string[]> }>().labels;
+    expect(items.filter((item) => labelled[item.id]?.includes(opened.number))).toHaveLength(3);
     expect(labelled[await idOf("Sin relación")]).toBeUndefined();
 
     const context = await call(
       "GET",
       `/api/plugins/demo/by-message/${await idOf("RE: Rotura de lunas")}`,
     );
-    expect(context.json<CaseDetail>()).toMatchObject({ case: { number: opened.number } });
-    expect(context.json<CaseDetail>().messages).toHaveLength(3);
+    const [inContext] = context.json<ByMessage>().cases;
+    expect(inContext).toMatchObject({ case: { number: opened.number } });
+    expect(inContext?.messages).toHaveLength(3);
 
     const list = await call("GET", "/api/plugins/demo/cases");
     expect(list.json<{ cases: { number: string; messageCount: number }[] }>().cases).toMatchObject([
       { number: opened.number, messageCount: 3 },
     ]);
+  });
+
+  it("añade a un expediente un correo de otro buzón y lo quita, sin tocar el correo", async () => {
+    const other = await createTestAccount(env, LUIS);
+    await env.db.insert(accountAccess).values({ userId: marta.id, accountId: other.id });
+    const luisBox = await otherClient(LUIS);
+    try {
+      await appendMail(luisBox, { from: ANA, to: LUIS, subject: "Llegó a otro buzón" }, "INBOX");
+    } finally {
+      await luisBox.logout();
+    }
+    await appendMail(outlook, { subject: "Siniestro principal" });
+    await syncAll(env, account);
+    await syncAll(env, other);
+    await host.drain();
+
+    const opened = (
+      await call("POST", "/api/plugins/demo/cases", {
+        messageId: await idOf("Siniestro principal"),
+      })
+    ).json<{ case: Case }>().case;
+    const [foreign] = await env.db
+      .select()
+      .from(messages)
+      .where(eq(messages.subject, "Llegó a otro buzón"));
+
+    await call("POST", `/api/plugins/demo/cases/${opened.id}/messages`, { messageId: foreign!.id });
+    const detail = (await call("GET", `/api/plugins/demo/cases/${opened.id}`)).json<CaseDetail>();
+    expect(detail.messages.map((entry) => `${entry.subject} · ${entry.mailbox}`).sort()).toEqual([
+      `Llegó a otro buzón · ${LUIS}`,
+      `Siniestro principal · ${ANA}`,
+    ]);
+
+    // Quien solo tiene el buzón del expediente ve el expediente, pero no el correo ajeno.
+    await env.db.insert(accountAccess).values({ userId: pedro.id, accountId: account.id });
+    const partial = await login(pedro.email);
+    const seen = (
+      await call("GET", `/api/plugins/demo/cases/${opened.id}`, undefined, partial)
+    ).json<CaseDetail>();
+    expect(seen.messages.map((entry) => entry.subject)).toEqual(["Siniestro principal"]);
+    const denied = await call(
+      "POST",
+      `/api/plugins/demo/cases/${opened.id}/messages`,
+      { messageId: foreign!.id },
+      partial,
+    );
+    expect(denied.statusCode).toBe(404);
+
+    const removed = await call(
+      "DELETE",
+      `/api/plugins/demo/cases/${opened.id}/messages/${foreign!.id}`,
+    );
+    expect(removed.statusCode).toBe(200);
+    const after = (await call("GET", `/api/plugins/demo/cases/${opened.id}`)).json<CaseDetail>();
+    expect(after.messages.map((entry) => entry.subject)).toEqual(["Siniestro principal"]);
+    expect(await env.db.select().from(messages).where(eq(messages.id, foreign!.id))).toHaveLength(
+      1,
+    );
+    const again = await call(
+      "DELETE",
+      `/api/plugins/demo/cases/${opened.id}/messages/${foreign!.id}`,
+    );
+    expect(again.statusCode).toBe(404);
   });
 
   it("respeta los permisos del buzón: quien no lo tiene no ve ni crea expedientes", async () => {

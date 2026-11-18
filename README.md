@@ -112,7 +112,14 @@ Un plugin añade funciones sin tocar el núcleo. El de demostración (`expedient
 3. Una acción en la barra del correo abierto.
 4. Una sección en el panel de contexto.
 
-El plugin de demostración crea un expediente desde un correo, con toda su conversación, y mete solos los correos que llegan después: por conversación, o porque el asunto lleva el número del expediente.
+El plugin de expedientes agrupa correos:
+
+- **De cualquier buzón.** Un expediente puede reunir correos de varios buzones, y un correo puede estar en varios expedientes.
+- **Por conversaciones.** Al crear un expediente desde un correo, o al añadir un correo a uno que ya existe, entra toda su conversación. Los correos que lleguen después a esa conversación, o con el número del expediente en el asunto, se añaden solos.
+- **Añadir y quitar a mano,** desde la barra de cualquier correo, con una confirmación en cada caso. Quitar un correo no lo borra ni lo mueve; el resto de su conversación se queda.
+- **Con los permisos de siempre.** Quien no tiene un buzón no ve los correos de ese buzón aunque estén en un expediente que sí ve.
+
+Los datos anexos de otras fuentes (documentos, datos de la compañía, notas) aún no tienen sitio en el expediente: es lo siguiente a definir.
 
 Hoy los plugins se compilan con la aplicación: se añaden a una lista en `main.ts` y en `plugins/index.ts`. Cargarlos sin recompilar queda fuera de esta validación.
 

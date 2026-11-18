@@ -33,7 +33,13 @@ if ((await sync.startAll()) === 0) {
   console.log("No hay buzones dados de alta. Usa `pnpm cuenta alta`.");
 }
 
+let stopping = false;
 const shutdown = () => {
+  if (stopping) return;
+  stopping = true;
+  // Si algo impide un cierre limpio, se sale igualmente: un servidor a medio apagar
+  // seguiría sincronizando por detrás junto al nuevo.
+  setTimeout(() => process.exit(0), 5000).unref();
   pluginHost.stop();
   void app
     .close()

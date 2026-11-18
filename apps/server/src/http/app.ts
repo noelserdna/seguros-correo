@@ -109,7 +109,9 @@ export const audit = (db: Db, entry: AuditEntry) => db.insert(auditLog).values(e
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  // Al cerrar se cortan también las conexiones abiertas (los avisos en vivo no terminan
+  // nunca por sí solos); sin esto el servidor no llegaría a apagarse.
+  const app = Fastify({ logger: false, forceCloseConnections: true });
   const context = { ...deps, limiter: deps.limiter ?? new AttemptLimiter() };
 
   await app.register(cookie);
