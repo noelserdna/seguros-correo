@@ -60,6 +60,8 @@ export type MessageDetail = {
   bodyPending: boolean;
   hasAttachments: boolean | null;
   removedFromServerAt: string | null;
+  /** Borrador escrito aquí por este usuario: se puede seguir editando. */
+  draftId: string | null;
   locations: {
     folderId: string;
     path: string;
@@ -68,6 +70,35 @@ export type MessageDetail = {
     uid: number;
   }[];
   attachments: Attachment[];
+};
+
+export type OutboundKind = "new" | "reply" | "replyAll" | "forward";
+export type OutboundFile = { id: string; filename: string; contentType: string; size: number };
+export type Outbound = {
+  id: string;
+  accountId: string;
+  kind: OutboundKind;
+  to: Address[];
+  cc: Address[];
+  bcc: Address[];
+  subject: string;
+  bodyHtml: string;
+  state: "draft" | "queued" | "sending" | "sent" | "failed";
+  error: string | null;
+  sendAfter: string | null;
+  draftSavedAt: string | null;
+  updatedAt: string;
+  attachments: OutboundFile[];
+};
+export type OutboundFields = Pick<Outbound, "to" | "cc" | "bcc" | "subject" | "bodyHtml">;
+export type OutboxItem = {
+  id: string;
+  subject: string;
+  to: Address[];
+  state: Outbound["state"];
+  error: string | null;
+  sendAfter: string | null;
+  updatedAt: string;
 };
 
 export type MessageLocation = MessageDetail["locations"][number];
@@ -141,7 +172,7 @@ export const setCsrfToken = (token: string) => {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = init.method ?? "GET";
   const headers = new Headers(init.headers);
-  if (init.body) headers.set("content-type", "application/json");
+  if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
   if (method !== "GET") headers.set("x-csrf-token", csrfToken);
 
   let response: Response;
@@ -194,6 +225,45 @@ export const api = {
     post<ActionReply>(`/messages/${id}/move`, { folderId, targetFolderId }),
   remove: (id: string, folderId: string, permanent: boolean) =>
     post<ActionReply>(`/messages/${id}/delete`, { folderId, permanent }),
+  createOutbound: (accountId: string, kind: OutboundKind, sourceMessageId?: string) =>
+    post<{ outbound: Outbound }>("/outbound", { accountId, kind, sourceMessageId }).then(
+      (data) => data.outbound,
+    ),
+  outbound: (id: string) =>
+    request<{ outbound: Outbound }>(`/outbound/${id}`).then((data) => data.outbound),
+  saveOutbound: (id: string, fields: OutboundFields) =>
+    request<{ outbound: Outbound }>(`/outbound/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(fields),
+    }).then((data) => data.outbound),
+  discardOutbound: (id: string) => request<{ ok: true }>(`/outbound/${id}`, { method: "DELETE" }),
+  attach: (id: string, file: File) =>
+    request<{ attachment: OutboundFile }>(
+      `/outbound/${id}/attachments?filename=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        body: file,
+        headers: {
+          "content-type": "application/octet-stream",
+          "x-file-type": file.type || "application/octet-stream",
+        },
+      },
+    ).then((data) => data.attachment),
+  detach: (id: string, fileId: string) =>
+    request<{ ok: true }>(`/outbound/${id}/attachments/${fileId}`, { method: "DELETE" }),
+  send: (id: string) => post<{ outbound: Outbound; undoMs: number }>(`/outbound/${id}/send`, {}),
+  cancelSend: (id: string) => post<{ outbound: Outbound }>(`/outbound/${id}/cancel`, {}),
+  outbox: (accountId: string) =>
+    request<{ items: OutboxItem[] }>(`/accounts/${accountId}/outbox`).then((data) => data.items),
+  signature: (accountId: string) =>
+    request<{ signature: string }>(`/accounts/${accountId}/identity`).then(
+      (data) => data.signature,
+    ),
+  saveSignature: (accountId: string, signature: string) =>
+    request<{ signature: string }>(`/accounts/${accountId}/identity`, {
+      method: "PUT",
+      body: JSON.stringify({ signature }),
+    }),
   undo: (actionId: string) => post<ActionReply>(`/actions/${actionId}/undo`, {}),
   thread: (id: string) =>
     request<{ messages: ThreadMessage[] }>(`/threads/${id}`).then((data) => data.messages),

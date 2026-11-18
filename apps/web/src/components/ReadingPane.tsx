@@ -8,6 +8,7 @@ import {
   type Attachment,
   type MessageDetail,
   type MessageLocation,
+  type OutboundKind,
 } from "../api.ts";
 import {
   displayName,
@@ -50,11 +51,14 @@ function ActionButton({
   filled,
   tone = "",
   expanded,
+  compact,
 }: {
-  icon: IconName;
+  icon?: IconName;
   label: string;
   onClick: () => void;
   disabled: boolean;
+  /** En un panel estrecho se queda solo con el icono. */
+  compact?: boolean;
   pressed?: boolean;
   filled?: boolean;
   tone?: string;
@@ -66,6 +70,8 @@ function ActionButton({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={pressed}
+      aria-label={compact ? label : undefined}
+      title={compact ? label : undefined}
       aria-expanded={expanded}
       aria-haspopup={expanded === undefined ? undefined : "menu"}
       className={`flex h-[30px] items-center gap-1.5 rounded-md border-0 px-2.5 whitespace-nowrap disabled:opacity-55 ${
@@ -74,8 +80,8 @@ function ActionButton({
           : `bg-transparent enabled:hover:bg-ground ${tone || "text-ink"}`
       }`}
     >
-      <Icon name={icon} filled={filled} />
-      {label}
+      {icon && <Icon name={icon} filled={filled} />}
+      {compact ? <span className="hidden @3xl:inline">{label}</span> : label}
     </button>
   );
 }
@@ -162,10 +168,12 @@ function Toolbar({
   message,
   location,
   actions,
+  onCompose,
 }: {
   message: MessageDetail | undefined;
   location: MessageLocation | null;
   actions: MailActions | undefined;
+  onCompose: ((kind: OutboundKind) => void) | undefined;
 }) {
   const [moving, setMoving] = useState(false);
   const closeMenu = useCallback(() => setMoving(false), []);
@@ -180,11 +188,22 @@ function Toolbar({
 
   return (
     <div className="@container flex h-11 shrink-0 items-center gap-1 border-b border-line px-3">
-      <ToolButton icon="reply" label="Responder" text />
-      <span className="hidden @3xl:flex">
-        <ToolButton label="Responder a todos" text />
-        <ToolButton label="Reenviar" text />
-      </span>
+      <ActionButton
+        icon="reply"
+        label="Responder"
+        disabled={!message || !onCompose}
+        onClick={() => onCompose?.("reply")}
+      />
+      <ActionButton
+        label="Responder a todos"
+        disabled={!message || !onCompose}
+        onClick={() => onCompose?.("replyAll")}
+      />
+      <ActionButton
+        label="Reenviar"
+        disabled={!message || !onCompose}
+        onClick={() => onCompose?.("forward")}
+      />
       <span className="mx-1 h-5 w-px bg-line" />
       <span className="relative">
         <ActionButton
@@ -209,6 +228,7 @@ function Toolbar({
       <ActionButton
         icon="flag"
         label={flagged ? "Con bandera" : "Bandera"}
+        compact
         disabled={off}
         pressed={flagged}
         filled={flagged}
@@ -220,6 +240,7 @@ function Toolbar({
       <ActionButton
         icon="mail"
         label="No leído"
+        compact
         disabled={off}
         pressed={unread}
         tone={unread ? "font-semibold text-accent-strong" : ""}
@@ -270,9 +291,11 @@ const names = (list: { name: string; address: string }[]) =>
 function MessageView({
   message,
   onSelect,
+  onEditDraft,
 }: {
   message: MessageDetail;
   onSelect: (id: string) => void;
+  onEditDraft?: (draftId: string) => void;
 }) {
   const [images, setImages] = useState(false);
   useEffect(() => setImages(false), [message.id]);
@@ -326,6 +349,20 @@ function MessageView({
               </span>
             </button>
           ))}
+        </div>
+      )}
+
+      {message.draftId && onEditDraft && (
+        <div className="flex shrink-0 items-center gap-2.5 rounded-md border border-line-strong bg-accent-soft px-3 py-2.5 text-xs">
+          <Icon name="drafts" />
+          <span className="grow">Es un borrador tuyo, todavía sin enviar.</span>
+          <button
+            type="button"
+            onClick={() => onEditDraft(message.draftId!)}
+            className="h-7 rounded-md border-0 bg-accent px-3 font-semibold text-white"
+          >
+            Seguir escribiendo
+          </button>
         </div>
       )}
 
@@ -441,12 +478,18 @@ export function ReadingPane({
   onLoaded,
   actions,
   folderId,
+  onCompose,
+  onEditDraft,
 }: {
   messageId: string | null;
   /** Acciones sobre el correo. Sin ellas (en el archivo) la barra queda desactivada. */
   actions?: MailActions;
   /** Carpeta que se está viendo: las acciones se aplican al correo en ella. */
   folderId: string | null;
+  /** Empezar una respuesta o un reenvío del correo abierto. */
+  onCompose?: (kind: OutboundKind, sourceMessageId: string) => void;
+  /** Seguir escribiendo un borrador propio. */
+  onEditDraft?: (draftId: string) => void;
   onSelect: (id: string) => void;
   onLoaded?: (message: MessageDetail) => void;
 }) {
@@ -478,6 +521,9 @@ export function ReadingPane({
         message={message.data}
         location={message.data ? pickLocation(message.data, folderId) : null}
         actions={actions}
+        onCompose={
+          message.data && onCompose ? (kind) => onCompose(kind, message.data.id) : undefined
+        }
       />
       {message.isLoading && (
         <div role="status" className="p-6 text-ink-2">
@@ -502,7 +548,9 @@ export function ReadingPane({
           )}
         </div>
       )}
-      {message.data && <MessageView message={message.data} onSelect={onSelect} />}
+      {message.data && (
+        <MessageView message={message.data} onSelect={onSelect} onEditDraft={onEditDraft} />
+      )}
     </main>
   );
 }

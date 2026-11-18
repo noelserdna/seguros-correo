@@ -1,6 +1,16 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, setCsrfToken, type MessageDetail, type Session } from "./api.ts";
+import {
+  api,
+  ApiError,
+  setCsrfToken,
+  type MessageDetail,
+  type Outbound,
+  type OutboundKind,
+  type Session,
+} from "./api.ts";
+import { Composer } from "./components/Composer.tsx";
+import { OutboxList } from "./components/Outbox.tsx";
 import { ContextPanel } from "./components/ContextPanel.tsx";
 import { Icon } from "./components/Icon.tsx";
 import { Login } from "./components/Login.tsx";
@@ -28,9 +38,11 @@ function useWide(): boolean {
 }
 
 /** Escucha los avisos del servidor y refresca lo que haya en pantalla. */
-function useLiveUpdates(onFailed: (message: string, userId: string | null) => void): boolean {
-  const failed = useRef(onFailed);
-  failed.current = onFailed;
+type LiveEvent = { type: string; payload?: { message?: string; userId?: string | null } };
+
+function useLiveUpdates(onEvent: (event: LiveEvent) => void): boolean {
+  const handler = useRef(onEvent);
+  handler.current = onEvent;
   const queryClient = useQueryClient();
   const [online, setOnline] = useState(true);
   useEffect(() => {
@@ -40,13 +52,7 @@ function useLiveUpdates(onFailed: (message: string, userId: string | null) => vo
     source.onerror = () => setOnline(false);
     source.onmessage = (event: MessageEvent<string>) => {
       try {
-        const data = JSON.parse(event.data) as {
-          type: string;
-          payload?: { message?: string; userId?: string | null };
-        };
-        if (data.type === "action.failed") {
-          failed.current(data.payload?.message ?? "", data.payload?.userId ?? null);
-        }
+        handler.current(JSON.parse(event.data) as LiveEvent);
       } catch {
         // Un aviso ilegible no impide refrescar.
       }
@@ -54,7 +60,15 @@ function useLiveUpdates(onFailed: (message: string, userId: string | null) => vo
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
-        for (const key of ["folders", "messages", "archive", "message", "thread", "search"]) {
+        for (const key of [
+          "folders",
+          "messages",
+          "archive",
+          "message",
+          "thread",
+          "search",
+          "outbox",
+        ]) {
           void queryClient.invalidateQueries({ queryKey: [key] });
         }
       }, 400);
@@ -121,15 +135,72 @@ function Mailbox({ session }: { session: Session }) {
   const userId = session.user.id;
   const online = useLiveUpdates(
     useCallback(
-      (message: string, byUserId: string | null) => {
-        // Solo se avisa a quien pidió la acción; a los demás les basta con ver el estado real.
-        if (byUserId !== userId) return;
-        showToast({ tone: "error", title: "No se ha podido completar la acción", detail: message });
+      (event: LiveEvent) => {
+        // Solo se avisa a quien lo pidió; a los demás les basta con ver el estado real.
+        if (event.payload?.userId !== userId) return;
+        const detail = event.payload.message ?? "";
+        if (event.type === "action.failed") {
+          showToast({ tone: "error", title: "No se ha podido completar la acción", detail });
+        } else if (event.type === "outbound.failed") {
+          showToast({
+            tone: "error",
+            title: "El correo no se ha enviado",
+            detail: `${detail} Lo tienes en la Bandeja de salida.`,
+          });
+        } else if (event.type === "outbound.sent") {
+          showToast({ tone: "info", title: "Correo enviado", ms: 4000 });
+        }
       },
       [userId, showToast],
     ),
   );
   const canAct = url.view !== "archive";
+
+  const openDraft = useCallback((id: string) => navigate({ composeId: id }), []);
+  const closeComposer = useCallback(() => navigate({ composeId: null }), []);
+  const compose = useCallback(
+    (kind: OutboundKind, sourceMessageId?: string) => {
+      const target = sourceMessageId ? (opened?.accountId ?? accountId) : accountId;
+      if (!target) return;
+      api
+        .createOutbound(target, kind, sourceMessageId)
+        .then((outbound) => openDraft(outbound.id))
+        .catch((error: unknown) =>
+          showToast({
+            tone: "error",
+            title: "No se ha podido empezar el correo",
+            detail: error instanceof ApiError ? error.message : undefined,
+          }),
+        );
+    },
+    [opened, accountId, openDraft, showToast],
+  );
+  const onSent = useCallback(
+    (outbound: Outbound, undoMs: number) => {
+      closeComposer();
+      showToast({
+        tone: "info",
+        title: `Enviando en ${Math.round(undoMs / 1000)} segundos…`,
+        ms: undoMs,
+        undo: () => {
+          api
+            .cancelSend(outbound.id)
+            .then(() => {
+              openDraft(outbound.id);
+              showToast({ tone: "info", title: "Envío deshecho. Sigue en Borradores." });
+            })
+            .catch((error: unknown) =>
+              showToast({
+                tone: "error",
+                title: "No se ha podido deshacer el envío",
+                detail: error instanceof ApiError ? error.message : undefined,
+              }),
+            );
+        },
+      });
+    },
+    [closeComposer, openDraft, showToast],
+  );
 
   // Abrir un correo lo marca como leído, aquí y en el servidor de correo.
   const autoRead = useRef<string | null>(null);
@@ -160,13 +231,14 @@ function Mailbox({ session }: { session: Session }) {
         undo();
         return;
       }
+      if (url.composeId) return;
       if (event.key !== "Delete" || !canAct || !opened || opened.id !== url.messageId) return;
       const location = pickLocation(opened, url.folderId);
       if (location) remove(opened, location);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [canAct, opened, url.messageId, url.folderId, remove, undo]);
+  }, [canAct, opened, url.messageId, url.folderId, url.composeId, remove, undo]);
   const onLoaded = useCallback((message: MessageDetail) => setOpened(message), []);
   useEffect(() => {
     if (!url.messageId) setOpened(null);
@@ -188,9 +260,17 @@ function Mailbox({ session }: { session: Session }) {
       <TopBar user={session.user} accounts={accounts.data} online={online} />
       <div className="relative flex min-h-0 grow">
         <Rail />
-        <FolderPanel accounts={accounts.data ?? []} />
+        <FolderPanel accounts={accounts.data ?? []} onCompose={() => compose("new")} />
 
-        {url.view === "search" ? (
+        {url.view === "outbox" && accountId ? (
+          <OutboxList
+            accountId={accountId}
+            onOpen={openDraft}
+            onError={(detail) =>
+              showToast({ tone: "error", title: "No se ha podido deshacer el envío", detail })
+            }
+          />
+        ) : url.view === "search" ? (
           <SearchView
             selectedId={url.messageId}
             onSelect={select}
@@ -241,14 +321,25 @@ function Mailbox({ session }: { session: Session }) {
           />
         )}
 
-        {(url.view !== "search" || url.messageId) && (
-          <ReadingPane
-            messageId={url.messageId}
-            onSelect={select}
-            onLoaded={onLoaded}
-            actions={canAct ? actions : undefined}
-            folderId={url.view === "mail" ? url.folderId : null}
+        {url.composeId ? (
+          <Composer
+            id={url.composeId}
+            accounts={accounts.data ?? []}
+            onClose={closeComposer}
+            onSent={onSent}
           />
+        ) : (
+          (url.view !== "search" || url.messageId) && (
+            <ReadingPane
+              messageId={url.messageId}
+              onSelect={select}
+              onLoaded={onLoaded}
+              actions={canAct ? actions : undefined}
+              folderId={url.view === "mail" ? url.folderId : null}
+              onCompose={compose}
+              onEditDraft={openDraft}
+            />
+          )
         )}
 
         {contextOpen && (

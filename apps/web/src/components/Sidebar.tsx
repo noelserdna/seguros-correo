@@ -96,6 +96,13 @@ function AccountFolders({
     queryFn: () => api.folders(account.id),
   });
   const unread = folders?.find((folder) => folder.specialUse === "inbox")?.unread ?? 0;
+  const outbox = useQuery({
+    queryKey: ["outbox", account.id],
+    queryFn: () => api.outbox(account.id),
+    refetchInterval: 20_000,
+  });
+  const waiting = outbox.data?.length ?? 0;
+  const outboxSelected = url.view === "outbox" && url.accountId === account.id;
 
   return (
     <section className="flex flex-col gap-0.5">
@@ -127,12 +134,36 @@ function AccountFolders({
             selected={url.view === "mail" && url.folderId === row.folder.id}
           />
         ))}
+      {open && (waiting > 0 || outboxSelected) && (
+        <button
+          type="button"
+          aria-current={outboxSelected ? "page" : undefined}
+          onClick={() =>
+            navigate({ view: "outbox", accountId: account.id, folderId: null, messageId: null })
+          }
+          className={`flex h-[30px] w-full items-center gap-2 rounded-md border-0 px-2 text-left font-semibold ${
+            outboxSelected
+              ? "bg-accent-soft text-accent-strong"
+              : "bg-transparent text-warn-ink hover:bg-line-soft"
+          }`}
+        >
+          <Icon name="sent" />
+          <span className="min-w-0 grow truncate">Bandeja de salida</span>
+          {waiting > 0 && <span className="text-xs">{waiting}</span>}
+        </button>
+      )}
     </section>
   );
 }
 
 /** Panel de carpetas: un bloque por buzón, plegable. */
-export function FolderPanel({ accounts }: { accounts: Account[] }) {
+export function FolderPanel({
+  accounts,
+  onCompose,
+}: {
+  accounts: Account[];
+  onCompose: () => void;
+}) {
   const url = useUrlState();
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const toggle = (id: string) =>
@@ -155,6 +186,15 @@ export function FolderPanel({ accounts }: { accounts: Account[] }) {
       aria-label="Carpetas"
       className="flex w-52 shrink-0 flex-col gap-3.5 overflow-y-auto border-r border-line bg-ground px-2 py-3"
     >
+      <button
+        type="button"
+        onClick={onCompose}
+        disabled={accounts.length === 0}
+        className="flex h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-md border-0 bg-accent font-semibold text-white hover:bg-accent-strong disabled:opacity-60"
+      >
+        <Icon name="drafts" />
+        Nuevo correo
+      </button>
       {accounts.map((account) => (
         <AccountFolders
           key={account.id}

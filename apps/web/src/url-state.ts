@@ -1,12 +1,14 @@
 import { useSyncExternalStore } from "react";
 
 /** Dónde está el usuario. Vive en la dirección de la página, para que Atrás y recargar funcionen. */
-export type View = "mail" | "archive" | "search";
+export type View = "mail" | "archive" | "search" | "outbox";
 export type UrlState = {
   view: View;
   accountId: string | null;
   folderId: string | null;
   messageId: string | null;
+  /** Correo que se está escribiendo; ocupa el panel de lectura. */
+  composeId: string | null;
   q: string;
   from: string;
   since: string;
@@ -26,7 +28,8 @@ function read(): UrlState {
   const view = params.get("v");
   cachedSearch = search;
   cachedState = {
-    view: view === "archive" || view === "search" ? view : "mail",
+    view: view === "archive" || view === "search" || view === "outbox" ? view : "mail",
+    composeId: params.get("r"),
     accountId: params.get("b"),
     folderId: params.get("c"),
     messageId: params.get("m"),
@@ -46,6 +49,7 @@ function write(state: UrlState, replace: boolean): void {
   if (state.accountId) params.set("b", state.accountId);
   if (state.folderId) params.set("c", state.folderId);
   if (state.messageId) params.set("m", state.messageId);
+  if (state.composeId) params.set("r", state.composeId);
   if (state.view === "search") {
     if (state.q) params.set("q", state.q);
     if (state.from) params.set("de", state.from);

@@ -14,8 +14,10 @@ export type Toast = {
   tone: "info" | "error";
   title: string;
   detail?: string;
-  /** Acción que se puede deshacer mientras el aviso siga en pantalla. */
-  undo?: { actionId: string; messageId: string; backTo: string };
+  /** Lo que hace «Deshacer» mientras el aviso siga en pantalla. */
+  undo?: () => void;
+  /** Tiempo en pantalla, si no es el habitual. */
+  ms?: number;
 };
 
 export type PendingDelete = { message: MessageDetail; location: MessageLocation };
@@ -63,7 +65,7 @@ export function useMailActions({
     if (next) {
       timer.current = setTimeout(
         () => setToast(null),
-        next.tone === "error" ? ERROR_TOAST_MS : TOAST_MS,
+        next.ms ?? (next.tone === "error" ? ERROR_TOAST_MS : TOAST_MS),
       );
     }
   }, []);
@@ -151,6 +153,22 @@ export function useMailActions({
     [onSelect, patchList],
   );
 
+  /** Devuelve a su carpeta un correo movido o borrado. */
+  const undoAction = useCallback(
+    (actionId: string, messageId: string) => () => {
+      show(null);
+      api
+        .undo(actionId)
+        .then(() => {
+          show({ tone: "info", title: "Deshecho: el correo vuelve a su carpeta" });
+          refreshAll();
+          onSelect(messageId);
+        })
+        .catch((error: unknown) => failed("No se ha podido deshacer", error));
+    },
+    [show, refreshAll, onSelect, failed],
+  );
+
   const move = useCallback(
     (message: MessageDetail, location: MessageLocation, target: { id: string; name: string }) => {
       takeOut(message, location.folderId);
@@ -160,15 +178,13 @@ export function useMailActions({
           show({
             tone: "info",
             title: `Movido a «${target.name}»`,
-            undo: action?.undoable
-              ? { actionId: action.id, messageId: message.id, backTo: location.folderId }
-              : undefined,
+            undo: action?.undoable ? undoAction(action.id, message.id) : undefined,
           });
           refresh("folders", "message", "search");
         })
         .catch((error: unknown) => failed("No se ha podido mover el correo", error));
     },
-    [takeOut, show, refresh, failed],
+    [takeOut, show, refresh, failed, undoAction],
   );
 
   const sendDelete = useCallback(
@@ -181,9 +197,7 @@ export function useMailActions({
             tone: "info",
             title: action?.type === "move" ? "Enviado a la Papelera" : "Borrado del buzón",
             detail: action?.type === "move" ? undefined : "Se conserva en el archivo.",
-            undo: action?.undoable
-              ? { actionId: action.id, messageId: message.id, backTo: location.folderId }
-              : undefined,
+            undo: action?.undoable ? undoAction(action.id, message.id) : undefined,
           });
           refresh("folders", "message", "search", "archive");
         })
@@ -197,7 +211,7 @@ export function useMailActions({
           failed("No se ha podido borrar el correo", error);
         });
     },
-    [takeOut, show, refresh, refreshAll, failed],
+    [takeOut, show, refresh, refreshAll, failed, undoAction],
   );
 
   /** Borrar: a la Papelera; si ya está en ella, se pide confirmación antes. */
@@ -214,19 +228,7 @@ export function useMailActions({
     setPendingDelete(null);
   }, [pendingDelete, sendDelete]);
 
-  const undo = useCallback(() => {
-    const target = toast?.undo;
-    if (!target) return;
-    show(null);
-    api
-      .undo(target.actionId)
-      .then(() => {
-        show({ tone: "info", title: "Deshecho: el correo vuelve a su carpeta" });
-        refreshAll();
-        onSelect(target.messageId);
-      })
-      .catch((error: unknown) => failed("No se ha podido deshacer", error));
-  }, [toast, show, refreshAll, onSelect, failed]);
+  const undo = useCallback(() => toast?.undo?.(), [toast]);
 
   return useMemo(
     () => ({

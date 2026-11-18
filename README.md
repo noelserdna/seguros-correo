@@ -10,6 +10,7 @@ Estado: validación técnica.
 - Fase 3a, usuarios, sesiones, permisos por buzón y API de lectura: hecha.
 - Fase 3b, interfaz web de lectura (carpetas, lista, lectura segura, adjuntos, búsqueda, archivo y avisos en vivo): hecha.
 - Fase 4, acciones con reflejo (leído, bandera, mover, borrar y deshacer): hecha.
+- Fase 5, redactar y enviar (borradores, responder, reenviar, adjuntos, Bandeja de salida y copia en Enviados): hecha.
 
 ## Requisitos
 
@@ -55,8 +56,6 @@ React, Vite y Tailwind, sin dependencias de terceros en tiempo de ejecución (la
 - **Avisos en vivo:** lo que cambia en el servidor de correo aparece sin recargar.
 - **Huecos para plugins** ya reservados: riel de módulos, fila de la lista, barra de acciones y panel de contexto.
 
-Responder y reenviar aparecen desactivados: llegan en la fase siguiente.
-
 ## Acciones con reflejo
 
 Lo que se hace aquí se ve en Outlook, y al revés.
@@ -67,10 +66,21 @@ Lo que se hace aquí se ve en Outlook, y al revés.
 - **Si otro programa se adelanta.** Cuando el correo ya no está donde se esperaba, la acción se rechaza, la pantalla vuelve al estado real y se avisa a quien la pidió.
 - **Auditoría.** Cada acción queda anotada con su usuario.
 
+## Redactar y enviar
+
+- **Se escribe en el panel de lectura,** con la lista a la vista. Nuevo correo, responder, responder a todos y reenviar; el original va citado y, al reenviar, con sus adjuntos.
+- **Borradores con reflejo.** El borrador se guarda solo y aparece en Borradores del servidor, también en Outlook, siempre en una sola versión. Las versiones anteriores no van al archivo.
+- **Diez segundos para deshacer.** Al enviar, el correo espera en la Bandeja de salida; si falla, se queda allí con el motivo.
+- **Una sola entrega y una sola copia.** Cada correo lleva un Message-ID fijo desde que se crea. En cuanto el servidor de salida lo acepta queda anotado: tras un corte solo falta dejar la copia en Enviados, y antes de guardarla se comprueba que no esté ya. Si el corte llega sin saber si salió, no se reenvía a ciegas: queda como fallido para que lo decida una persona.
+- **El original queda marcado** como respondido o reenviado, también en Outlook.
+- **Firma por usuario y buzón,** en texto sin formato.
+- **Lo que manda el editor pasa por el mismo filtro que el correo entrante** antes de salir.
+
 ## Apuntado para configuración
 
 Comportamientos que hoy son fijos y deberán poder elegirse (por usuario o por oficina):
 
+- **Margen para deshacer un envío.** Hoy son 10 segundos.
 - **Qué se abre al mover o borrar un correo.** Hoy se abre el siguiente de la lista, que queda marcado como leído, como hace Outlook. Alternativas: no abrir ninguno, o abrir el anterior.
 
 ## Cómo funciona la sincronización
