@@ -127,11 +127,14 @@ export function ContextPanel({
   onClose,
   onSelect,
   overlay,
+  full,
 }: {
   message: MessageDetail | null;
   onClose: () => void;
   onSelect: (id: string) => void;
   overlay: boolean;
+  /** En el teléfono ocupa toda la pantalla. */
+  full?: boolean;
 }) {
   const thread = useQuery({
     queryKey: ["thread", message?.threadId],
@@ -149,10 +152,14 @@ export function ContextPanel({
   return (
     <aside
       aria-label="Contexto del correo"
-      className={`flex w-80 shrink-0 flex-col border-l border-line bg-panel ${
-        overlay
-          ? "absolute top-0 right-10 bottom-0 z-10 shadow-[-8px_0_24px_rgba(27,35,48,0.10)]"
-          : ""
+      className={`flex flex-col bg-panel ${
+        full
+          ? "absolute inset-0 z-10"
+          : `w-80 shrink-0 border-l border-line ${
+              overlay
+                ? "absolute top-0 right-10 bottom-0 z-10 shadow-[-8px_0_24px_rgba(27,35,48,0.10)]"
+                : ""
+            }`
       }`}
     >
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">

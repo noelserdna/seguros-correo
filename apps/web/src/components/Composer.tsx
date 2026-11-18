@@ -326,7 +326,7 @@ function Editor({
       onDrop={onDrop}
       className={`relative flex min-w-0 grow flex-col bg-panel ${dragging ? "outline-2 -outline-offset-2 outline-accent" : ""}`}
     >
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-3">
+      <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-2 border-b border-line px-3 py-1">
         <button
           type="button"
           onClick={() => void send()}
@@ -356,7 +356,7 @@ function Editor({
         />
         <span
           role="status"
-          className={`truncate text-xs ${save.kind === "error" ? "text-bad-ink" : "text-ink-2"}`}
+          className={`hidden truncate text-xs sm:inline ${save.kind === "error" ? "text-bad-ink" : "text-ink-2"}`}
         >
           {status}
         </span>
@@ -395,7 +395,7 @@ function Editor({
         </div>
       )}
 
-      <div className="flex shrink-0 flex-col px-6">
+      <div className="flex shrink-0 flex-col px-4 md:px-6">
         <Field label="De" htmlFor="redactar-de">
           <span id="redactar-de" className="truncate py-2">
             {account

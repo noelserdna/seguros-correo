@@ -46,7 +46,10 @@ export function SearchView({
   selectedId,
   onSelect,
   compact,
+  full = false,
 }: {
+  /** En el teléfono ocupa todo el ancho aunque las filas vayan compactas. */
+  full?: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
   /** Con un correo abierto al lado, se ocultan las columnas secundarias. */
@@ -80,9 +83,9 @@ export function SearchView({
   return (
     <section
       aria-label="Resultados de búsqueda"
-      className={`flex min-w-0 flex-col bg-panel ${compact ? "w-[460px] shrink-0 border-r border-line" : "grow"}`}
+      className={`flex min-w-0 flex-col bg-panel ${compact && !full ? "w-[300px] shrink-0 border-r border-line lg:w-[460px]" : "grow"}`}
     >
-      <div className="flex flex-col gap-2.5 border-b border-line px-6 pt-3.5 pb-3">
+      <div className="flex flex-col gap-2.5 border-b border-line px-4 pt-3.5 pb-3 md:px-6">
         <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
           <h1 className="m-0 text-base font-semibold">
             {search.isLoading ? "Buscando" : count} para «{url.q}»
@@ -192,7 +195,7 @@ export function SearchView({
             type="button"
             onClick={() => onSelect(hit.id)}
             aria-current={hit.id === selectedId ? "true" : undefined}
-            className={`flex w-full items-start gap-4 border-0 border-b border-l-[3px] border-b-line-soft px-6 py-2.5 text-left text-ink ${
+            className={`flex w-full items-start gap-4 border-0 border-b border-l-[3px] border-b-line-soft px-4 py-2.5 text-left text-ink md:px-6 ${
               hit.id === selectedId
                 ? "border-l-accent bg-accent-soft"
                 : "border-l-transparent bg-panel hover:bg-ground"

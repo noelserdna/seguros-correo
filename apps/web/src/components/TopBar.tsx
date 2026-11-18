@@ -29,7 +29,13 @@ export function TopBar({
   user,
   accounts,
   online,
+  onMenu,
+  onCompose,
 }: {
+  /** En pantallas estrechas, «Nuevo correo» va en la barra porque las carpetas están plegadas. */
+  onCompose?: () => void;
+  /** En pantallas estrechas, abre el panel de carpetas. */
+  onMenu?: () => void;
   user: User;
   accounts: Account[] | undefined;
   online: boolean;
@@ -72,12 +78,25 @@ export function TopBar({
   };
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-panel pr-3">
-      <div className="flex h-12 w-64 shrink-0 items-center gap-2.5 pl-3">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-panel pr-2 md:gap-4 md:pr-3">
+      <div className="flex h-12 shrink-0 items-center gap-2.5 pl-2 md:pl-3 xl:w-64">
+        {onMenu && (
+          <button
+            type="button"
+            onClick={onMenu}
+            aria-label="Abrir el menú de carpetas"
+            title="Carpetas"
+            className="flex size-9 items-center justify-center rounded-md border-0 bg-transparent text-ink hover:bg-ground"
+          >
+            <Icon name="menu" size={18} />
+          </button>
+        )}
         <span className="flex size-6 items-center justify-center rounded-md bg-accent text-white">
           <Icon name="mail" size={14} />
         </span>
-        <span className="text-sm font-semibold tracking-[-0.01em]">{PRODUCT_NAME}</span>
+        <span className="hidden text-sm font-semibold tracking-[-0.01em] md:inline">
+          {PRODUCT_NAME}
+        </span>
       </div>
 
       <form
@@ -98,12 +117,24 @@ export function TopBar({
           placeholder="Buscar en todos los buzones, también en el archivo"
           className="min-w-0 grow border-0 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-2"
         />
-        <kbd className="rounded border border-line-strong px-[5px] py-px font-sans text-[11px] text-ink-2">
+        <kbd className="hidden rounded border border-line-strong px-[5px] py-px font-sans text-[11px] text-ink-2 md:inline">
           /
         </kbd>
       </form>
 
-      <div className="grow" />
+      {onCompose && (
+        <button
+          type="button"
+          onClick={onCompose}
+          aria-label="Nuevo correo"
+          title="Nuevo correo"
+          className="flex size-8 shrink-0 items-center justify-center rounded-md border-0 bg-accent text-white hover:bg-accent-strong"
+        >
+          <Icon name="drafts" />
+        </button>
+      )}
+
+      <div className="hidden grow md:block" />
 
       <div
         role="status"
@@ -111,14 +142,14 @@ export function TopBar({
         title={status.text}
       >
         <span className={`size-2 shrink-0 rounded-full ${DOT[status.tone]}`} />
-        <span className="truncate">{status.text}</span>
+        <span className="hidden truncate lg:inline">{status.text}</span>
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="flex size-6 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-accent">
+        <span className="hidden size-6 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-accent sm:flex">
           {initials(user.name, user.email)}
         </span>
-        <span className="max-w-40 truncate">{user.name}</span>
+        <span className="hidden max-w-40 truncate lg:inline">{user.name}</span>
         <button
           type="button"
           onClick={() => logout.mutate()}

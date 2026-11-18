@@ -63,6 +63,13 @@ const PATHS = {
       <path d="M3 8h6a4.5 4.5 0 0 1 4.5 4.5" />
     </>
   ),
+  menu: <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />,
+  back: (
+    <>
+      <path d="M7 3.5 2.5 8 7 12.5" />
+      <path d="M3 8h10.5" />
+    </>
+  ),
   replyAll: (
     <>
       <path d="M5 4.5 1.5 8 5 11.5" />

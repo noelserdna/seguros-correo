@@ -24,20 +24,8 @@ import { pickLocation, useMailActions } from "./actions.ts";
 import { ConfirmDelete, ToastView } from "./components/Feedback.tsx";
 import { folderName } from "./folders.ts";
 import { plugins, usePluginLabels } from "./plugins/index.ts";
+import { useLayout } from "./layout.ts";
 import { navigate, useUrlState } from "./url-state.ts";
-
-/** A partir de este ancho el panel de contexto cabe al lado; por debajo se superpone. */
-const WIDE = 1440;
-
-function useWide(): boolean {
-  const [wide, setWide] = useState(() => window.innerWidth >= WIDE);
-  useEffect(() => {
-    const onResize = () => setWide(window.innerWidth >= WIDE);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return wide;
-}
 
 /** Escucha los avisos del servidor y refresca lo que haya en pantalla. */
 type LiveEvent = { type: string; payload?: { message?: string; userId?: string | null } };
@@ -87,8 +75,14 @@ function useLiveUpdates(onEvent: (event: LiveEvent) => void): boolean {
 
 function Mailbox({ session }: { session: Session }) {
   const url = useUrlState();
-  const wide = useWide();
+  const { layout, wide } = useLayout();
+  const phone = layout === "phone";
   const [contextOpen, setContextOpen] = useState(false);
+  // En pantallas estrechas las carpetas viven en un panel lateral que se abre desde la barra.
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => {
+    setNavOpen(false);
+  }, [url.view, url.folderId, url.accountId, url.pluginId, url.composeId, layout]);
   const [opened, setOpened] = useState<MessageDetail | null>(null);
 
   const accounts = useQuery({
@@ -310,7 +304,9 @@ function Mailbox({ session }: { session: Session }) {
   // Esc cierra el panel de contexto.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setContextOpen(false);
+      if (event.key !== "Escape") return;
+      setContextOpen(false);
+      setNavOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -318,25 +314,56 @@ function Mailbox({ session }: { session: Session }) {
 
   const account = accounts.data?.find((entry) => entry.id === accountId);
 
+  // En el teléfono se ve una sola cosa: la lista, o el correo que se ha abierto.
+  const detailOpen = Boolean(url.messageId || url.composeId);
+  const showList = !phone || !detailOpen;
+  const showDetail = !phone || detailOpen;
+  const folderPanel = (
+    <FolderPanel
+      accounts={accounts.data ?? []}
+      onCompose={() => {
+        setNavOpen(false);
+        compose("new");
+      }}
+      isAdmin={session.user.role === "admin"}
+      onError={(detail) =>
+        showToast({ tone: "error", title: "No se ha podido conectar el buzón", detail })
+      }
+    />
+  );
+
   return (
-    <div className="flex h-full min-w-[1024px] flex-col bg-ground">
-      <TopBar user={session.user} accounts={accounts.data} online={online} />
+    <div className="flex h-full flex-col bg-ground">
+      <TopBar
+        user={session.user}
+        accounts={accounts.data}
+        online={online}
+        onMenu={layout === "desktop" ? undefined : () => setNavOpen(true)}
+        onCompose={layout === "desktop" || !accountId ? undefined : () => compose("new")}
+      />
       <div className="relative flex min-h-0 grow">
-        <Rail />
-        <FolderPanel
-          accounts={accounts.data ?? []}
-          onCompose={() => compose("new")}
-          isAdmin={session.user.role === "admin"}
-          onError={(detail) =>
-            showToast({ tone: "error", title: "No se ha podido conectar el buzón", detail })
-          }
-        />
+        {!phone && <Rail />}
+        {layout === "desktop" && folderPanel}
+        {navOpen && layout !== "desktop" && (
+          <div className="fixed inset-0 z-40 flex">
+            <div className="flex max-w-[calc(100vw-48px)] shadow-[8px_0_24px_rgba(27,35,48,0.18)]">
+              {phone && <Rail />}
+              {folderPanel}
+            </div>
+            <button
+              type="button"
+              aria-label="Cerrar el menú"
+              onClick={() => setNavOpen(false)}
+              className="grow border-0 bg-ink/30"
+            />
+          </div>
+        )}
 
         {url.view === "settings" ? (
           <SettingsView isAdmin={session.user.role === "admin"} />
         ) : (
           <>
-            {url.view === "outbox" && accountId ? (
+            {!showList ? null : url.view === "outbox" && accountId ? (
               <OutboxList
                 accountId={accountId}
                 onOpen={openDraft}
@@ -348,7 +375,8 @@ function Mailbox({ session }: { session: Session }) {
               <SearchView
                 selectedId={url.messageId}
                 onSelect={select}
-                compact={Boolean(url.messageId)}
+                compact={phone || Boolean(url.messageId)}
+                full={phone}
               />
             ) : activePlugin?.View ? (
               <activePlugin.View
@@ -402,7 +430,7 @@ function Mailbox({ session }: { session: Session }) {
               />
             )}
 
-            {url.composeId ? (
+            {!showDetail ? null : url.composeId ? (
               <Composer
                 id={url.composeId}
                 accounts={accounts.data ?? []}
@@ -420,6 +448,8 @@ function Mailbox({ session }: { session: Session }) {
                   onCompose={compose}
                   onEditDraft={openDraft}
                   toolbarExtra={toolbarExtra}
+                  onBack={phone ? () => select(null) : undefined}
+                  onContext={phone ? openContext : undefined}
                 />
               )
             )}
@@ -432,11 +462,12 @@ function Mailbox({ session }: { session: Session }) {
             onClose={() => setContextOpen(false)}
             onSelect={select}
             overlay={!wide}
+            full={phone}
           />
         )}
         <aside
           aria-label="Pestañas de contexto"
-          className="flex w-10 shrink-0 flex-col items-center gap-1 border-l border-line bg-ground py-2"
+          className="hidden w-10 shrink-0 flex-col items-center gap-1 border-l border-line bg-ground py-2 md:flex"
         >
           <button
             type="button"

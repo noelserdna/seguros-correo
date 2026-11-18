@@ -62,7 +62,7 @@ export function Login() {
       </div>
 
       <div className="flex grow items-center justify-center p-6">
-        <form onSubmit={submit} className="flex w-[360px] flex-col gap-[18px]">
+        <form onSubmit={submit} className="flex w-full max-w-[360px] flex-col gap-[18px]">
           <div className="flex flex-col gap-1.5">
             <h2 className="m-0 text-[22px] font-semibold tracking-[-0.01em]">Entrar</h2>
             <p className="m-0 text-ink-2">

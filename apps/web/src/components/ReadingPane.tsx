@@ -77,8 +77,8 @@ function ActionButton({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={pressed}
-      aria-label={compact ? label : undefined}
-      title={compact ? label : undefined}
+      aria-label={label}
+      title={label}
       aria-expanded={expanded}
       aria-haspopup={expanded === undefined ? undefined : "menu"}
       className={`flex h-[30px] items-center gap-1.5 rounded-md border-0 px-2.5 whitespace-nowrap disabled:opacity-55 ${
@@ -88,7 +88,7 @@ function ActionButton({
       }`}
     >
       {icon && <Icon name={icon} filled={filled} />}
-      {compact ? <span className="hidden @3xl:inline">{label}</span> : label}
+      <span className={compact ? "hidden @3xl:inline" : "hidden @xl:inline"}>{label}</span>
     </button>
   );
 }
@@ -177,7 +177,11 @@ function Toolbar({
   actions,
   onCompose,
   extra,
+  onBack,
+  onContext,
 }: {
+  onBack: (() => void) | undefined;
+  onContext: (() => void) | undefined;
   message: MessageDetail | undefined;
   location: MessageLocation | null;
   actions: MailActions | undefined;
@@ -196,7 +200,18 @@ function Toolbar({
   };
 
   return (
-    <div className="@container flex h-11 shrink-0 items-center gap-1 border-b border-line px-3">
+    <div className="@container flex min-h-11 shrink-0 flex-wrap items-center gap-x-1 border-b border-line px-1.5 py-1 md:px-3">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Volver a la lista"
+          title="Volver a la lista"
+          className="flex size-[34px] items-center justify-center rounded-md border-0 bg-transparent text-ink hover:bg-ground"
+        >
+          <Icon name="back" size={18} />
+        </button>
+      )}
       <ActionButton
         icon="reply"
         label="Responder"
@@ -217,7 +232,7 @@ function Toolbar({
         disabled={!message || !onCompose}
         onClick={() => onCompose?.("forward")}
       />
-      <span className="mx-1 h-5 w-px bg-line" />
+      <span className="mx-1 hidden h-5 w-px bg-line @xl:block" />
       <span className="relative">
         <ActionButton
           icon="move"
@@ -270,7 +285,20 @@ function Toolbar({
       <div className="grow" />
       {/* Hueco para plugins: acciones del módulo sobre el correo abierto. */}
       {message && extra?.(message)}
-      <ToolButton icon="print" label="Imprimir" />
+      <span className="hidden @xl:block">
+        <ToolButton icon="print" label="Imprimir" />
+      </span>
+      {onContext && (
+        <button
+          type="button"
+          onClick={onContext}
+          aria-label="Abrir el panel de contexto"
+          title="Contexto"
+          className="flex size-[30px] items-center justify-center rounded-md border-0 bg-transparent text-ink hover:bg-ground"
+        >
+          <Icon name="panel" />
+        </button>
+      )}
     </div>
   );
 }
@@ -344,7 +372,7 @@ function MessageView({
   const location = place ? locationName(place.path, place.specialUse) : null;
 
   return (
-    <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto px-6 pt-4 pb-6">
+    <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto px-4 pt-4 pb-6 md:px-6">
       <div className="flex flex-col gap-1">
         <h1 className="m-0 text-lg leading-[1.3] font-semibold tracking-[-0.01em]">
           {message.subject || "(sin asunto)"}
@@ -414,7 +442,7 @@ function MessageView({
         </span>
         <div className="flex min-w-0 grow flex-col gap-0.5">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-semibold whitespace-nowrap">
+            <span className="max-w-full shrink-0 truncate text-sm font-semibold">
               {displayName(message.from.name, message.from.address)}
             </span>
             {message.from.name && (
@@ -506,7 +534,12 @@ export function ReadingPane({
   onCompose,
   onEditDraft,
   toolbarExtra,
+  onBack,
+  onContext,
 }: {
+  /** En el teléfono: volver a la lista y abrir el panel de contexto. */
+  onBack?: () => void;
+  onContext?: () => void;
   messageId: string | null;
   /** Acciones sobre el correo. Sin ellas (en el archivo) la barra queda desactivada. */
   actions?: MailActions;
@@ -553,6 +586,8 @@ export function ReadingPane({
           message.data && onCompose ? (kind) => onCompose(kind, message.data.id) : undefined
         }
         extra={toolbarExtra}
+        onBack={onBack}
+        onContext={onContext}
       />
       {message.isLoading && (
         <div role="status" className="p-6 text-ink-2">

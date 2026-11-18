@@ -455,7 +455,7 @@ function CaseMenu({
       ref={box}
       role="dialog"
       aria-label="Expedientes de este correo"
-      className="absolute top-[34px] right-0 z-20 flex max-h-[460px] w-80 flex-col overflow-y-auto rounded-lg border border-line-strong bg-panel p-1.5 text-[13px] shadow-[0_8px_24px_rgba(27,35,48,0.14)]"
+      className="absolute top-[34px] right-0 z-20 flex max-h-[460px] w-80 max-w-[calc(100vw-24px)] flex-col overflow-y-auto rounded-lg border border-line-strong bg-panel p-1.5 text-[13px] shadow-[0_8px_24px_rgba(27,35,48,0.14)]"
     >
       {current.length > 0 && (
         <>
@@ -539,7 +539,7 @@ export const demoPlugin: WebPlugin = {
     return (
       <section
         aria-label="Expedientes"
-        className="flex w-[360px] shrink-0 flex-col border-r border-line bg-panel"
+        className="flex w-full flex-col bg-panel md:w-[300px] md:shrink-0 md:border-r md:border-line lg:w-[360px]"
       >
         <div className="border-b border-line px-3 pt-3 pb-2.5">
           <h2 className="m-0 text-[15px] font-semibold">Expedientes</h2>

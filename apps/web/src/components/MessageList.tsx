@@ -172,7 +172,7 @@ export function MessageList({
   return (
     <section
       aria-label={title}
-      className="flex w-[360px] shrink-0 flex-col border-r border-line bg-panel"
+      className="flex w-full flex-col bg-panel md:w-[300px] md:shrink-0 md:border-r md:border-line lg:w-[360px]"
     >
       <div className="flex flex-col gap-2 border-b border-line px-3 pt-3 pb-2">
         <div className="flex items-baseline gap-2">

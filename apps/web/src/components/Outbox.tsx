@@ -43,7 +43,7 @@ export function OutboxList({
   return (
     <section
       aria-label="Bandeja de salida"
-      className="flex w-[360px] shrink-0 flex-col border-r border-line bg-panel"
+      className="flex w-full flex-col bg-panel md:w-[300px] md:shrink-0 md:border-r md:border-line lg:w-[360px]"
     >
       <div className="border-b border-line px-3 pt-3 pb-2.5">
         <h2 className="m-0 text-[15px] font-semibold">Bandeja de salida</h2>
