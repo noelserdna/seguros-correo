@@ -130,6 +130,81 @@ describe("módulo de expedientes", () => {
     expect(modules).toMatchObject([{ id: "expedientes", name: "Expedientes", active: true }]);
   });
 
+  it("guarda los datos del siniestro, cambia solo lo que se manda, y se cierra y reabre", async () => {
+    await appendMail(outlook, { subject: "Atestado 2026/8812" });
+    await settle();
+    type Full = Case & {
+      status: string;
+      closeReason: string | null;
+      caseTypeId: string | null;
+      typeName: string | null;
+      ownerId: string | null;
+      ownerName: string | null;
+      lossDate: string | null;
+      claimRef: string | null;
+      insurerId: string | null;
+    };
+    const types = (await call("GET", "/api/plugins/expedientes/case-types")).json<{
+      caseTypes: { id: string; name: string }[];
+    }>().caseTypes;
+    expect(types.map((type) => type.name)).toEqual(["Siniestro de automóvil con atestado"]);
+
+    const created = await call("POST", "/api/plugins/expedientes/cases", {
+      messageId: await idOf("Atestado 2026/8812"),
+      caseTypeId: types[0]!.id,
+      lossDate: "2026-11-03",
+    });
+    const opened = created.json<{ case: Full }>().case;
+    expect(opened).toMatchObject({
+      status: "abierto",
+      typeName: "Siniestro de automóvil con atestado",
+      lossDate: "2026-11-03",
+      ownerName: "Marta",
+      claimRef: null,
+    });
+
+    const url = `/api/plugins/expedientes/cases/${opened.id}`;
+    const changed = (await call("PUT", url, { claimRef: "SA-26-88412" })).json<{ case: Full }>()
+      .case;
+    expect(changed).toMatchObject({ claimRef: "SA-26-88412", lossDate: "2026-11-03" });
+    expect((await call("PUT", url, {})).statusCode).toBe(400);
+    // El gestor tiene que ver el buzón del expediente.
+    expect((await call("PUT", url, { ownerId: pedro.id })).statusCode).toBe(400);
+
+    const closed = (await call("POST", `${url}/close`, { reason: "pagado" })).json<{
+      case: Full;
+    }>();
+    expect(closed.case).toMatchObject({ status: "cerrado", closeReason: "pagado" });
+    expect((await call("POST", `${url}/close`, { reason: "porque sí" })).statusCode).toBe(400);
+    const reopened = (await call("POST", `${url}/reopen`)).json<{ case: Full }>();
+    expect(reopened.case).toMatchObject({ status: "abierto", closeReason: null });
+  });
+
+  it("un correo con el número de siniestro de la aseguradora entra solo en su expediente", async () => {
+    await appendMail(outlook, { subject: "Parte del golpe" });
+    await settle();
+    const opened = (
+      await call("POST", "/api/plugins/expedientes/cases", {
+        messageId: await idOf("Parte del golpe"),
+        claimRef: "SA-26-88412",
+      })
+    ).json<{ case: Case }>().case;
+    // Otra conversación, que cita el número de la aseguradora en el texto.
+    await appendMail(outlook, {
+      subject: "Designación de perito",
+      text: "Para el siniestro sa-26-88412 hemos designado a Peritaciones Norte.",
+    });
+    await appendMail(outlook, { subject: "Sin relación", text: "Nada que ver." });
+    await settle();
+    const detail = (
+      await call("GET", `/api/plugins/expedientes/cases/${opened.id}`)
+    ).json<CaseDetail>();
+    expect(detail.messages.map((m) => `${m.subject}: ${m.how}`)).toEqual([
+      "Parte del golpe: manual",
+      "Designación de perito: claim",
+    ]);
+  });
+
   it("crea un expediente desde un correo y mete en él toda su conversación", async () => {
     await appendMail(outlook, { subject: "Golpe en el camión", messageId: "<a@exp.test>" });
     await appendMail(outlook, {
