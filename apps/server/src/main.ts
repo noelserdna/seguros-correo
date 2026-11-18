@@ -5,6 +5,7 @@ import { buildApp } from "./http/app.ts";
 import { expedientesPlugin } from "./plugins/expedientes/index.ts";
 import { PluginHost, type ServerPlugin } from "./plugins/host.ts";
 import { ocrPlugin } from "./plugins/ocr/index.ts";
+import { visionPlugin } from "./plugins/vision/index.ts";
 import { openRuntime } from "./runtime.ts";
 import { SyncService } from "./sync/service.ts";
 
@@ -14,6 +15,7 @@ const sync = new SyncService(runtime);
 const available: Record<string, ServerPlugin> = {
   expedientes: expedientesPlugin,
   ocr: ocrPlugin,
+  vision: visionPlugin,
 };
 const plugins = runtime.config.PLUGINS.split(",")
   .map((id) => id.trim())
@@ -24,7 +26,7 @@ const plugins = runtime.config.PLUGINS.split(",")
     return plugin;
   });
 console.log(`Módulos: ${plugins.map((plugin) => plugin.id).join(", ") || "ninguno"}`);
-const pluginHost = new PluginHost(runtime.db, plugins, runtime.rawStore);
+const pluginHost = new PluginHost(runtime.db, plugins, runtime.rawStore, runtime.config);
 await pluginHost.setup();
 pluginHost.start();
 
@@ -33,6 +35,7 @@ documents.start();
 
 const app = await buildApp({
   plugins,
+  config: runtime.config,
   availablePlugins: Object.values(available),
   db: runtime.db,
   secrets: runtime.secrets,

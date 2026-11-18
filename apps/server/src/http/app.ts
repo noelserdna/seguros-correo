@@ -1,3 +1,4 @@
+import type { Config } from "../config.ts";
 import { existsSync } from "node:fs";
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
@@ -56,6 +57,8 @@ export type AppDeps = {
   webDir?: string;
   /** Plugins activos. Sus rutas cuelgan de `/api/plugins/<id>`. */
   plugins?: ServerPlugin[];
+  /** Configuración del servidor, para los módulos que la necesiten. */
+  config?: Config;
   /** Todos los módulos que esta instalación podría cargar, activos o no. */
   availablePlugins?: ServerPlugin[];
   /** Se llama al dar de alta un buzón, para empezar a sincronizarlo. */

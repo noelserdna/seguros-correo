@@ -205,7 +205,7 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         /** Si se ha podido leer su texto: `ok`, `needs_ocr`, `unsupported`… */
         textStatus: sql<
           string | null
-        >`case when ${documentTexts.status} = 'empty' and ${documentTexts.method} like 'ocr:%' then 'no_text_image' else ${documentTexts.status} end`,
+        >`case when ${documentTexts.status} = 'empty' and (${documentTexts.method} like 'ocr:%' or ${documentTexts.method} like 'vision:%') then 'no_text_image' else ${documentTexts.status} end`,
         textChars: documentTexts.chars,
         contentSha256: attachments.contentSha256,
       })

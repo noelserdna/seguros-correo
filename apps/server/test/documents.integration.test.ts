@@ -2,6 +2,8 @@
  * Capa de texto: cuerpo limpio de cada correo y texto de sus adjuntos, accesible para la
  * búsqueda y para quien arme el contexto de un expediente. Requiere `pnpm dev:up`.
  */
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ImapFlow } from "imapflow";
@@ -11,6 +13,7 @@ import { createUser } from "../src/auth/users.ts";
 import { accountAccess, documentPages, documentTexts, events, messages } from "../src/db/schema.ts";
 import { ExtractionWorker } from "../src/documents/worker.ts";
 import { OcrWorker, setupOcr } from "../src/plugins/ocr/index.ts";
+import { setupVision, VisionWorker } from "../src/plugins/vision/index.ts";
 import { buildApp, CSRF_HEADER, SESSION_COOKIE } from "../src/http/app.ts";
 import type { Account } from "../src/imap/connection.ts";
 import { expedientesPlugin } from "../src/plugins/expedientes/index.ts";
@@ -19,6 +22,7 @@ import { makeDocx, makePdf } from "./documents.ts";
 import {
   ANA,
   appendMail,
+  config,
   createTestAccount,
   openTestEnv,
   otherClient,
@@ -301,7 +305,7 @@ describe("texto limpio y accesible", () => {
     await setupOcr(env.db);
     // La tabla del módulo no se vacía con las demás: se parte de cero.
     await env.db.execute(sql`truncate table ocr_jobs`);
-    const ocr = new OcrWorker({ db: env.db, rawStore: env.rawStore });
+    const ocr = new OcrWorker({ db: env.db, rawStore: env.rawStore, config });
     try {
       expect(await ocr.drain()).toBe(2);
       // No se repite lo ya intentado.
@@ -329,6 +333,146 @@ describe("texto limpio y accesible", () => {
       detail.message.attachments.map((file) => `${file.filename}: ${file.textStatus}`),
     ).toEqual(["parte.png: ok", "vacia.png: no_text_image"]);
   }, 120_000);
+
+  it("el modelo de visión trabaja en cola: lee, describe, reintenta y se rinde", async () => {
+    // Un servidor que imita la API de chat: así la prueba no depende de la red ni cuesta nada.
+    const requests: { model: string; image: string; auth: string | undefined }[] = [];
+    let failures = 0;
+    const fake = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk: Buffer) => (body += chunk.toString()));
+      request.on("end", () => {
+        const payload = JSON.parse(body) as {
+          model: string;
+          messages: { content: { type: string; image_url?: { url: string } }[] }[];
+        };
+        const image = payload.messages[0]!.content.find((part) => part.type === "image_url");
+        requests.push({
+          model: payload.model,
+          image: image?.image_url?.url.slice(0, 22) ?? "",
+          auth: request.headers.authorization,
+        });
+        if (failures > 0) {
+          failures--;
+          response.writeHead(503, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: { message: "Servicio saturado" } }));
+          return;
+        }
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    "TIPO: foto\nDESCRIPCIÓN: Lateral de un camión blanco con una abolladura en la caja.\nTEXTO:\nMatrícula 4471-KLM",
+                },
+              },
+            ],
+            usage: { prompt_tokens: 900, completion_tokens: 40, cost: 0.0002 },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => fake.listen(0, "127.0.0.1", resolve));
+    const port = (fake.address() as AddressInfo).port;
+
+    const photo = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    await appendMail(outlook, {
+      subject: "Foto del golpe",
+      text: "Va la foto.",
+      attachments: [{ filename: "golpe.png", content: photo, contentType: "image/png" }],
+    });
+    await settle();
+
+    await setupVision(env.db);
+    await env.db.execute(sql`truncate table vision_jobs`);
+    const settings = {
+      apiUrl: `http://127.0.0.1:${port}/v1`,
+      apiKey: "clave-de-prueba",
+      model: "modelo/de-prueba",
+      concurrency: 2,
+      maxPages: 10,
+      retryDelayMs: 1,
+      maxAttempts: 3,
+    };
+    const vision = new VisionWorker({ db: env.db, rawStore: env.rawStore, config }, settings);
+    const jobs = async () =>
+      (
+        await env.db.execute<{ state: string; attempts: number; kind: string | null }>(
+          sql`select state, attempts, kind from vision_jobs`,
+        )
+      ).rows;
+    try {
+      // Un fallo pasajero: vuelve a la cola y, pasada la espera, sale bien al segundo intento.
+      failures = 1;
+      expect(await vision.enqueue()).toBe(1);
+      for (let round = 0; round < 3; round++) {
+        await vision.drain();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(await jobs()).toMatchObject([{ state: "done", attempts: 2, kind: "foto" }]);
+      expect(requests).toHaveLength(2);
+      // Lo hecho no se vuelve a encolar.
+      expect(await vision.enqueue()).toBe(0);
+      // Un PDF cuyas páginas leyó antes el reconocimiento de texto también entra en la cola.
+      await env.db.execute(sql`truncate table vision_jobs`);
+      await env.db.execute(sql`update document_texts set method = 'pdf_texto', status = 'ok'`);
+      await env.db.execute(sql`update document_pages set method = 'ocr:tesseract-spa'`);
+      expect(await vision.enqueue()).toBe(1);
+      await vision.drain();
+    } finally {
+      vision.stop();
+    }
+    expect(requests[0]).toMatchObject({
+      model: "modelo/de-prueba",
+      image: "data:image/png;base64,",
+      auth: "Bearer clave-de-prueba",
+    });
+
+    // El texto queda leído y la descripción, como nota del modelo junto al adjunto.
+    const message = await bySubject("Foto del golpe");
+    const detail = (await call("GET", `/api/messages/${message.id}`)).json<{
+      message: {
+        attachments: { textStatus: string; autoNote: { text: string; author: string } | null }[];
+      };
+    }>();
+    expect(detail.message.attachments[0]).toMatchObject({
+      textStatus: "ok",
+      autoNote: {
+        text: "Lateral de un camión blanco con una abolladura en la caja.",
+        author: "vision:modelo/de-prueba",
+      },
+    });
+    const search = await call("GET", "/api/search?q=4471-KLM");
+    expect(search.json<{ items: { subject: string }[] }>().items.map((hit) => hit.subject)).toEqual(
+      ["Foto del golpe"],
+    );
+
+    // Si el servicio sigue fallando, tras los intentos queda como fallido.
+    // Se parte de nuevo de un documento sin leer: uno ya leído no se vuelve a mandar.
+    await env.db.execute(sql`delete from document_pages`);
+    await env.db.execute(
+      sql`update document_texts set status = 'needs_ocr', method = null, pages = 0, chars = 0`,
+    );
+    await env.db.execute(sql`update vision_jobs set state = 'queued', attempts = 0`);
+    failures = 10;
+    const stubborn = new VisionWorker({ db: env.db, rawStore: env.rawStore, config }, settings);
+    try {
+      // Cada reintento espera un poco más: se dan varias pasadas hasta agotar los intentos.
+      for (let round = 0; round < 6; round++) {
+        await stubborn.drain();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    } finally {
+      stubborn.stop();
+      await new Promise<void>((resolve) => fake.close(() => resolve()));
+    }
+    expect(await jobs()).toMatchObject([{ state: "failed", attempts: 3 }]);
+  });
 
   it("el mismo adjunto en dos correos se lee y se guarda una sola vez", async () => {
     await appendMail(outlook, {

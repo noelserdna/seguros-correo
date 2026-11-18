@@ -230,7 +230,7 @@ export function SearchView({
                     <span className="font-semibold text-ink">
                       {hit.attachmentHit.filename ?? "Adjunto"}
                       {hit.attachmentHit.page === 0
-                        ? " · lo anotado"
+                        ? ` · ${hit.attachmentHit.label ?? "lo anotado"}`
                         : hit.attachmentHit.pages > 1 &&
                           ` · ${hit.attachmentHit.label ?? `pág. ${hit.attachmentHit.page}`}`}
                       :

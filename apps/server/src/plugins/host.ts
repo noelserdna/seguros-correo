@@ -4,6 +4,7 @@ import type { Db } from "../db/client.ts";
 import { eventCursors, events } from "../db/schema.ts";
 import type { RouteOptions } from "../http/app.ts";
 import type { RawStore } from "../storage/raw-store.ts";
+import type { Config } from "../config.ts";
 
 export type MailEvent = typeof events.$inferSelect;
 
@@ -27,7 +28,7 @@ export type ServerPlugin = {
 };
 
 /** Lo que el núcleo pone a disposición de un plugin que trabaja por su cuenta. */
-export type PluginServices = { db: Db; rawStore: RawStore };
+export type PluginServices = { db: Db; rawStore: RawStore; config: Config };
 
 const BATCH = 200;
 
@@ -43,11 +44,13 @@ export class PluginHost {
   #busy = false;
 
   readonly #rawStore: RawStore | undefined;
+  readonly #config: Config | undefined;
 
-  constructor(db: Db, plugins: ServerPlugin[], rawStore?: RawStore) {
+  constructor(db: Db, plugins: ServerPlugin[], rawStore?: RawStore, config?: Config) {
     this.#db = db;
     this.#plugins = plugins;
     this.#rawStore = rawStore;
+    this.#config = config;
   }
 
   async setup(): Promise<void> {
@@ -98,9 +101,9 @@ export class PluginHost {
 
   start(intervalMs = 1500): void {
     if (this.#timer) return;
-    if (this.#rawStore) {
+    if (this.#rawStore && this.#config) {
       for (const plugin of this.#plugins) {
-        plugin.start?.({ db: this.#db, rawStore: this.#rawStore });
+        plugin.start?.({ db: this.#db, rawStore: this.#rawStore, config: this.#config });
       }
     }
     this.#timer = setInterval(() => {

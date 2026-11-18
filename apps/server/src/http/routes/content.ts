@@ -405,7 +405,7 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
               (select json_build_object(
                        'filename', a.filename,
                        'page', 0,
-                       'label', 'descripción',
+                       'label', case when n.source = 'model' then 'descripción automática' else 'lo anotado' end,
                        'pages', 1,
                        'headline', ts_headline('es_sin_acentos', n.text, q,
                          ${`MaxWords=24, MinWords=10, MaxFragments=1, StartSel=${MARK_START}, StopSel=${MARK_END}`}))

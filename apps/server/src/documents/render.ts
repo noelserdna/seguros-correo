@@ -1,4 +1,4 @@
-import type { StoredDocument } from "../../documents/store.ts";
+import type { StoredDocument } from "./store.ts";
 
 export type PageImage = { page: number; image: Buffer };
 export type Rendered =

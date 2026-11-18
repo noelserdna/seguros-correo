@@ -236,9 +236,11 @@ function AttachmentContext({ file }: { file: MessageDetail["attachments"][number
             {page.text && <LongText text={page.text} />}
           </div>
         ))}
-      {open && text.data?.pages.some((page) => page.method.startsWith("ocr:")) && (
+      {open && text.data?.pages.some((page) => /^(ocr|vision):/.test(page.method)) && (
         <span className="text-[11px] text-ink-2">
-          Texto reconocido de la imagen: puede tener errores.
+          {text.data.pages.some((page) => page.method.startsWith("vision:"))
+            ? "Texto leído por un modelo de visión: puede tener errores."
+            : "Texto reconocido de la imagen: puede tener errores."}
         </span>
       )}
       {open && text.data && text.data.pagesNeedingOcr > 0 && text.data.pages.length <= 1 && (

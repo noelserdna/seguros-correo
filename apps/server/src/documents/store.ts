@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { documentPages, documentTexts, events } from "../db/schema.ts";
+import { documentNotes, documentPages, documentTexts, events } from "../db/schema.ts";
 import { parseMail } from "../mail/parse.ts";
 import type { RawStore } from "../storage/raw-store.ts";
 
@@ -103,6 +103,46 @@ export async function saveRecognizedText(
           type: "document.extracted" as const,
           messageId: holder.messageId,
           payload: { contentSha256: sha, status, engine: input.engine },
+        })),
+      );
+    }
+  });
+}
+
+/**
+ * Guarda lo que un modelo dice que contiene un documento. Va aparte de la nota de una
+ * persona: las dos conviven y la de una persona nunca se pisa.
+ */
+export async function saveModelNote(
+  db: Db,
+  sha: string,
+  input: { extractor: string; text: string; confidence?: number | null },
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const row = {
+      text: input.text,
+      extractor: input.extractor,
+      confidence: input.confidence ?? null,
+      updatedAt: new Date(),
+    };
+    await tx
+      .insert(documentNotes)
+      .values({ contentSha256: sha, source: "model", ...row })
+      .onConflictDoUpdate({
+        target: [documentNotes.contentSha256, documentNotes.source],
+        set: row,
+      });
+    const holders = await tx.execute<{ messageId: string; accountId: string }>(sql`
+      select distinct m.id as "messageId", m.account_id as "accountId"
+        from attachments a join messages m on m.id = a.message_id
+       where a.content_sha256 = ${sha}`);
+    if (holders.rows.length > 0) {
+      await tx.insert(events).values(
+        holders.rows.map((holder) => ({
+          accountId: holder.accountId,
+          type: "document.described" as const,
+          messageId: holder.messageId,
+          payload: { contentSha256: sha, source: "model", extractor: input.extractor },
         })),
       );
     }

@@ -18,10 +18,21 @@ const schema = z.object({
 
   /**
    * Módulos opcionales que se cargan, separados por comas: `expedientes` (gestión de
-   * expedientes) y `ocr` (texto de fotos y escaneados). Sin ninguno, es un cliente de
-   * correo con contexto.
+   * expedientes), `ocr` (texto de fotos y escaneados con Tesseract) y `vision` (texto y
+   * descripción con un modelo de visión). Sin ninguno, es un cliente de correo con contexto.
    */
   PLUGINS: z.string().default(""),
+
+  /**
+   * Módulo `vision`: modelo que lee fotos y escaneados. Cualquier servicio con la API de
+   * chat estándar: OpenRouter para las pruebas, o un servidor en la propia oficina.
+   */
+  VISION_API_URL: z.string().default("https://openrouter.ai/api/v1"),
+  VISION_API_KEY: z.string().optional(),
+  OPENROUTER_API_KEY: z.string().optional(),
+  VISION_MODEL: z.string().default("qwen/qwen3-vl-8b-instruct"),
+  VISION_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+  VISION_MAX_PAGES: z.coerce.number().int().min(1).max(200).default(10),
 
   /** Dirección con la que se abre la aplicación en el navegador. Por defecto, este equipo. */
   PUBLIC_URL: z.string().optional(),

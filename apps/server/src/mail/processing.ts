@@ -24,11 +24,11 @@ export type Processing = {
  * qué contiene hasta que alguien lo anote.
  */
 export const READ = sql.raw(
-  "(d.status = 'ok' or (d.status = 'empty' and coalesce(d.method, '') not like 'ocr:%'))",
+  "(d.status = 'ok' or (d.status = 'empty' and coalesce(d.method, '') not like 'ocr:%' and coalesce(d.method, '') not like 'vision:%'))",
 );
 /** El estado que se enseña: distingue la foto sin texto del documento vacío. */
 export const SHOWN_STATUS = sql.raw(
-  "case when d.status = 'empty' and d.method like 'ocr:%' then 'no_text_image' else d.status end",
+  "case when d.status = 'empty' and (d.method like 'ocr:%' or d.method like 'vision:%') then 'no_text_image' else d.status end",
 );
 
 export const processingOf: SQL<Processing> = sql<Processing>`(

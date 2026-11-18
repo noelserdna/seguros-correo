@@ -4,7 +4,7 @@ import { loadDocument, saveRecognizedText } from "../../documents/store.ts";
 import { requireSession } from "../../http/app.ts";
 import type { PluginServices, ServerPlugin } from "../host.ts";
 import { closeEngine, ENGINE, recognize } from "./engine.ts";
-import { renderForOcr } from "./render.ts";
+import { renderForOcr } from "../../documents/render.ts";
 
 /** Por debajo de esto, lo «leído» es ruido: una foto sin texto da letras sueltas. */
 const MIN_CHARS = 12;

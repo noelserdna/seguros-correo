@@ -118,6 +118,7 @@ De serie, la aplicación es un cliente de correo con contexto: correo, texto lim
 
 - `expedientes`: agrupar correos en expedientes, con sus datos y su contexto.
 - `ocr`: reconocer el texto de fotos y documentos escaneados (Tesseract en español, dentro del propio servidor).
+- `vision`: leer fotos, planos y escaneados con un modelo de visión, en cola: copia su texto y anota qué contienen. Habla la API de chat estándar, así que sirve igual con OpenRouter (solo para pruebas: los documentos salen fuera) que con un servidor en la oficina. Configuración en `.env.example`; la cola se ve en Configuración.
 
 La interfaz muestra solo los módulos que el servidor tiene cargados. Un plugin añade funciones sin tocar el núcleo.
 
