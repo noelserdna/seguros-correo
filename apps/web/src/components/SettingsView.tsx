@@ -7,10 +7,11 @@ const STATUS: Record<string, string> = {
   empty: "Sin texto dentro",
   pending: "En cola, leyéndose",
   needs_ocr: "Sin procesar: imágenes y escaneados",
+  no_text_image: "Fotos y dibujos sin texto: solo se pueden anotar",
   unsupported: "Sin procesar: tipo de fichero que no se sabe leer",
   failed: "Sin procesar: han dado error al leerlos",
 };
-const ORDER = ["ok", "empty", "pending", "needs_ocr", "unsupported", "failed"];
+const ORDER = ["ok", "empty", "pending", "needs_ocr", "no_text_image", "unsupported", "failed"];
 const number = (value: number) => value.toLocaleString("es-ES");
 
 /** Cuánto de lo que hay en los buzones está ya leído y disponible para buscar. */

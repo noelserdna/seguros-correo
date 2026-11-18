@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { Db } from "../db/client.ts";
 import { eventCursors, events } from "../db/schema.ts";
 import type { RouteOptions } from "../http/app.ts";
+import type { RawStore } from "../storage/raw-store.ts";
 
 export type MailEvent = typeof events.$inferSelect;
 
@@ -17,7 +18,13 @@ export type ServerPlugin = {
   routes?: FastifyPluginAsync<RouteOptions>;
   /** Recibe cada evento una vez, en orden. Puede recibirlo de nuevo si falló a medias. */
   onEvent?: (event: MailEvent, db: Db) => Promise<void>;
+  /** Trabajo propio en segundo plano (una cola, un temporizador). Se para al cerrar. */
+  start?: (services: PluginServices) => void;
+  stop?: () => Promise<void> | void;
 };
+
+/** Lo que el núcleo pone a disposición de un plugin que trabaja por su cuenta. */
+export type PluginServices = { db: Db; rawStore: RawStore };
 
 const BATCH = 200;
 
@@ -32,9 +39,12 @@ export class PluginHost {
   #timer: ReturnType<typeof setInterval> | null = null;
   #busy = false;
 
-  constructor(db: Db, plugins: ServerPlugin[]) {
+  readonly #rawStore: RawStore | undefined;
+
+  constructor(db: Db, plugins: ServerPlugin[], rawStore?: RawStore) {
     this.#db = db;
     this.#plugins = plugins;
+    this.#rawStore = rawStore;
   }
 
   async setup(): Promise<void> {
@@ -85,6 +95,11 @@ export class PluginHost {
 
   start(intervalMs = 1500): void {
     if (this.#timer) return;
+    if (this.#rawStore) {
+      for (const plugin of this.#plugins) {
+        plugin.start?.({ db: this.#db, rawStore: this.#rawStore });
+      }
+    }
     this.#timer = setInterval(() => {
       if (this.#busy) return;
       this.#busy = true;
@@ -99,5 +114,6 @@ export class PluginHost {
   stop(): void {
     if (this.#timer) clearInterval(this.#timer);
     this.#timer = null;
+    for (const plugin of this.#plugins) void plugin.stop?.();
   }
 }

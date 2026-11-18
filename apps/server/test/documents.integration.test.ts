@@ -10,6 +10,7 @@ import type { User } from "../src/auth/sessions.ts";
 import { createUser } from "../src/auth/users.ts";
 import { accountAccess, documentPages, documentTexts, events, messages } from "../src/db/schema.ts";
 import { ExtractionWorker } from "../src/documents/worker.ts";
+import { OcrWorker, setupOcr } from "../src/plugins/ocr/index.ts";
 import { buildApp, CSRF_HEADER, SESSION_COOKIE } from "../src/http/app.ts";
 import type { Account } from "../src/imap/connection.ts";
 import { demoPlugin } from "../src/plugins/demo/index.ts";
@@ -265,6 +266,67 @@ describe("texto limpio y accesible", () => {
     const after = (await call("GET", `/api/messages/${first.id}`)).json<Detail>();
     expect(after.message.attachments[0]?.note).toBeNull();
   });
+
+  it("con el módulo de reconocimiento, una imagen con texto se lee y se encuentra", async () => {
+    const { createCanvas } = await import("@napi-rs/canvas");
+    const draw = (lines: string[]) => {
+      const canvas = createCanvas(1400, 500);
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, 1400, 500);
+      context.fillStyle = "#000000";
+      context.font = "48px sans-serif";
+      lines.forEach((line, index) => context.fillText(line, 60, 120 + index * 90));
+      return canvas.toBuffer("image/png");
+    };
+    await appendMail(outlook, {
+      subject: "Parte escaneado",
+      text: "Va el parte.",
+      attachments: [
+        {
+          filename: "parte.png",
+          content: draw(["DECLARACION AMISTOSA DE ACCIDENTE", "Franquicia de 300 euros"]),
+          contentType: "image/png",
+        },
+        { filename: "vacia.png", content: draw([]), contentType: "image/png" },
+      ],
+    });
+    await settle();
+    const status = async (): Promise<Record<string, string>> =>
+      Object.fromEntries(
+        (await env.db.select().from(documentTexts)).map((doc) => [doc.filename ?? "", doc.status]),
+      );
+    expect(await status()).toEqual({ "parte.png": "needs_ocr", "vacia.png": "needs_ocr" });
+
+    await setupOcr(env.db);
+    const ocr = new OcrWorker({ db: env.db, rawStore: env.rawStore });
+    try {
+      expect(await ocr.drain()).toBe(2);
+      // No se repite lo ya intentado.
+      expect(await ocr.drain()).toBe(0);
+    } finally {
+      await ocr.stop();
+    }
+    expect(await status()).toEqual({ "parte.png": "ok", "vacia.png": "empty" });
+
+    const [page] = await env.db.select().from(documentPages);
+    expect(page?.method).toBe("ocr:tesseract-spa");
+    expect(page?.text).toContain("AMISTOSA");
+
+    const search = await call("GET", "/api/search?q=franquicia");
+    expect(search.json<{ items: { subject: string }[] }>().items.map((hit) => hit.subject)).toEqual(
+      ["Parte escaneado"],
+    );
+
+    // La imagen sin texto no cuenta como leída: sigue pendiente de que alguien la anote.
+    const message = await bySubject("Parte escaneado");
+    const detail = (await call("GET", `/api/messages/${message.id}`)).json<{
+      message: { attachments: { filename: string; textStatus: string }[] };
+    }>();
+    expect(
+      detail.message.attachments.map((file) => `${file.filename}: ${file.textStatus}`),
+    ).toEqual(["parte.png: ok", "vacia.png: no_text_image"]);
+  }, 120_000);
 
   it("el mismo adjunto en dos correos se lee y se guarda una sola vez", async () => {
     await appendMail(outlook, {

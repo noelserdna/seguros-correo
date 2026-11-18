@@ -18,14 +18,27 @@ export type Processing = {
   noted: number;
 };
 
+/**
+ * Un adjunto cuenta como leído si se tiene su texto, o si se sabe que no trae ninguno.
+ * Una foto en la que el reconocimiento no encuentra texto no cuenta: sigue sin saberse
+ * qué contiene hasta que alguien lo anote.
+ */
+export const READ = sql.raw(
+  "(d.status = 'ok' or (d.status = 'empty' and coalesce(d.method, '') not like 'ocr:%'))",
+);
+/** El estado que se enseña: distingue la foto sin texto del documento vacío. */
+export const SHOWN_STATUS = sql.raw(
+  "case when d.status = 'empty' and d.method like 'ocr:%' then 'no_text_image' else d.status end",
+);
+
 export const processingOf: SQL<Processing> = sql<Processing>`(
   select json_build_object(
            'bodyPending', ${messages.rawSha256} is null,
            'files', count(a.id)::int,
-           'read', (count(a.id) filter (where d.status in ('ok', 'empty')))::int,
+           'read', (count(a.id) filter (where ${READ}))::int,
            'pending', (count(a.id) filter (where d.status is null or d.status = 'pending'))::int,
            'noted', (count(a.id) filter (
-             where d.status not in ('ok', 'empty', 'pending')
+             where d.status is not null and d.status <> 'pending' and not ${READ}
                and exists (select 1 from document_notes n
                             where n.content_sha256 = a.content_sha256)))::int)
     from (select 1) one

@@ -16,6 +16,12 @@ const schema = z.object({
     .default("0")
     .transform((value) => value === "1" || value === "true"),
 
+  /**
+   * Módulos opcionales que se cargan, separados por comas. `demo` son los expedientes;
+   * `ocr`, el reconocimiento de texto en fotos y escaneados.
+   */
+  PLUGINS: z.string().default("demo"),
+
   /** Dirección con la que se abre la aplicación en el navegador. Por defecto, este equipo. */
   PUBLIC_URL: z.string().optional(),
   /** Acceso con cuenta de Google y de Microsoft 365. Sin estos valores, no se ofrece. */

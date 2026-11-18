@@ -1,10 +1,9 @@
-import { parseMail } from "../mail/parse.ts";
-import { createHash } from "node:crypto";
 import { asc, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { documentPages, documentTexts, events } from "../db/schema.ts";
 import type { RawStore } from "../storage/raw-store.ts";
 import { extractDocument } from "./extract.ts";
+import { loadDocument } from "./store.ts";
 
 /** Anota los adjuntos de un correo como documentos pendientes de leer (una vez por contenido). */
 export async function queueDocuments(
@@ -44,47 +43,16 @@ export class ExtractionWorker {
   }
 
   async #extract(sha: string): Promise<void> {
-    // El contenido no se guarda aparte: se saca del original de cualquier correo que lo lleve.
-    const source = await this.#db.execute<{
-      rawSha256: string;
-      position: number;
-      filename: string | null;
-      contentType: string;
-    }>(sql`
-      select m.raw_sha256 as "rawSha256", a.position, a.filename, a.content_type as "contentType"
-        from attachments a join messages m on m.id = a.message_id
-       where a.content_sha256 = ${sha} and m.raw_sha256 is not null
-       limit 1`);
-    const origin = source.rows[0];
-    let result: Awaited<ReturnType<typeof extractDocument>>;
-    if (!origin) {
-      result = {
-        status: "failed",
-        method: null,
-        pages: [],
-        pagesNeedingOcr: 0,
-        error: "No se encuentra el correo que traía este adjunto.",
-      };
-    } else {
-      const parsed = await parseMail(this.#rawStore.open(origin.rawSha256));
-      const part =
-        parsed.attachments.find(
-          (candidate) => createHash("sha256").update(candidate.content).digest("hex") === sha,
-        ) ?? parsed.attachments[origin.position];
-      result = part
-        ? await extractDocument({
-            filename: origin.filename,
-            contentType: origin.contentType,
-            content: part.content,
-          })
-        : {
-            status: "failed",
-            method: null,
-            pages: [],
-            pagesNeedingOcr: 0,
-            error: "Adjunto no encontrado.",
-          };
-    }
+    const document = await loadDocument(this.#db, this.#rawStore, sha);
+    const result: Awaited<ReturnType<typeof extractDocument>> = document
+      ? await extractDocument(document)
+      : {
+          status: "failed",
+          method: null,
+          pages: [],
+          pagesNeedingOcr: 0,
+          error: "No se encuentra el correo que traía este adjunto.",
+        };
 
     await this.#db.transaction(async (tx) => {
       await tx.delete(documentPages).where(eq(documentPages.contentSha256, sha));

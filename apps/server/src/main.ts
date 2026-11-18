@@ -3,15 +3,25 @@ import { fileURLToPath } from "node:url";
 import { ExtractionWorker } from "./documents/worker.ts";
 import { buildApp } from "./http/app.ts";
 import { demoPlugin } from "./plugins/demo/index.ts";
-import { PluginHost } from "./plugins/host.ts";
+import { PluginHost, type ServerPlugin } from "./plugins/host.ts";
+import { ocrPlugin } from "./plugins/ocr/index.ts";
 import { openRuntime } from "./runtime.ts";
 import { SyncService } from "./sync/service.ts";
 
 const runtime = await openRuntime();
 const sync = new SyncService(runtime);
 
-const plugins = [demoPlugin];
-const pluginHost = new PluginHost(runtime.db, plugins);
+const available: Record<string, ServerPlugin> = { demo: demoPlugin, ocr: ocrPlugin };
+const plugins = runtime.config.PLUGINS.split(",")
+  .map((id) => id.trim())
+  .filter(Boolean)
+  .map((id) => {
+    const plugin = available[id];
+    if (!plugin) throw new Error(`PLUGINS nombra un módulo que no existe: «${id}».`);
+    return plugin;
+  });
+console.log(`Módulos: ${plugins.map((plugin) => plugin.id).join(", ") || "ninguno"}`);
+const pluginHost = new PluginHost(runtime.db, plugins, runtime.rawStore);
 await pluginHost.setup();
 pluginHost.start();
 

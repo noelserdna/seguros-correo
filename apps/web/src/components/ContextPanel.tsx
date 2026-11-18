@@ -64,6 +64,7 @@ const TEXT_STATUS: Record<string, string> = {
   pending: "Leyendo su texto…",
   needs_ocr: "Sin procesar: es una imagen o un escaneado y aún no se reconoce su texto.",
   empty: "No contiene texto.",
+  no_text_image: "Sin texto reconocible: es una foto o un dibujo. Anota qué contiene.",
   unsupported: "Sin procesar: no se sabe leer el texto de este tipo de fichero.",
   failed: "Sin procesar: no se ha podido leer su texto.",
 };
@@ -235,6 +236,11 @@ function AttachmentContext({ file }: { file: MessageDetail["attachments"][number
             {page.text && <LongText text={page.text} />}
           </div>
         ))}
+      {open && text.data?.pages.some((page) => page.method.startsWith("ocr:")) && (
+        <span className="text-[11px] text-ink-2">
+          Texto reconocido de la imagen: puede tener errores.
+        </span>
+      )}
       {open && text.data && text.data.pagesNeedingOcr > 0 && text.data.pages.length <= 1 && (
         <span className="text-ink-2">Hay páginas escaneadas sin texto todavía.</span>
       )}

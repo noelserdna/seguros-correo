@@ -14,7 +14,7 @@ import {
   users,
 } from "../../db/schema.ts";
 import { addFact } from "../../facts/facts.ts";
-import { processingOf } from "../../mail/processing.ts";
+import { processingOf, READ, SHOWN_STATUS } from "../../mail/processing.ts";
 import { assertAccess } from "../access.ts";
 import { audit, notFound, requireSession, type RouteOptions } from "../app.ts";
 import { publicAccount } from "./admin.ts";
@@ -65,14 +65,14 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         join account_access aa on aa.account_id = m.account_id and aa.user_id = ${user.id}
         cross join lateral (
           select count(a.id) as files,
-                 count(a.id) filter (where d.status in ('ok', 'empty')) as read
+                 count(a.id) filter (where ${READ}) as read
             from attachments a
             left join document_texts d on d.content_sha256 = a.content_sha256
            where a.message_id = m.id and not a.inline) f
     `);
     // Cada fichero cuenta una vez aunque venga en varios correos.
     const documents = await db.execute<{ status: string; documents: number; noted: number }>(sql`
-      select coalesce(d.status, 'pending') as status,
+      select coalesce(${SHOWN_STATUS}, 'pending') as status,
              count(*)::int as documents,
              (count(*) filter (where exists (
                 select 1 from document_notes n where n.content_sha256 = docs.sha)))::int as noted
@@ -188,7 +188,9 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         size: attachments.size,
         inline: attachments.inline,
         /** Si se ha podido leer su texto: `ok`, `needs_ocr`, `unsupported`… */
-        textStatus: documentTexts.status,
+        textStatus: sql<
+          string | null
+        >`case when ${documentTexts.status} = 'empty' and ${documentTexts.method} like 'ocr:%' then 'no_text_image' else ${documentTexts.status} end`,
         textChars: documentTexts.chars,
         contentSha256: attachments.contentSha256,
       })

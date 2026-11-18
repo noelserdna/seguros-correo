@@ -306,6 +306,7 @@ function Toolbar({
 /** Por qué no se puede buscar dentro de un adjunto, cuando es el caso. */
 const NO_TEXT: Record<string, string> = {
   needs_ocr: "Es una imagen o un documento escaneado: todavía no se ha reconocido su texto.",
+  no_text_image: "Es una foto o un dibujo sin texto reconocible.",
   unsupported: "No se sabe leer el texto de este tipo de fichero.",
   failed: "No se ha podido leer el texto de este fichero.",
 };

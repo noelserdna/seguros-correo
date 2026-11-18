@@ -62,7 +62,8 @@ export type Attachment = {
   size: number;
   inline: boolean;
   /** Si se ha podido leer su texto. `null`: aún no se ha intentado. */
-  textStatus: "pending" | "ok" | "needs_ocr" | "empty" | "unsupported" | "failed" | null;
+  textStatus:
+    "pending" | "ok" | "needs_ocr" | "empty" | "no_text_image" | "unsupported" | "failed" | null;
   textChars: number | null;
   /** Qué contiene, anotado por una persona. */
   note: AttachmentNote | null;
