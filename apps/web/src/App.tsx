@@ -23,7 +23,7 @@ import { TopBar } from "./components/TopBar.tsx";
 import { pickLocation, useMailActions } from "./actions.ts";
 import { ConfirmDelete, ToastView } from "./components/Feedback.tsx";
 import { folderName } from "./folders.ts";
-import { plugins, usePluginLabels } from "./plugins/index.ts";
+import { plugins, setActivePlugins, usePluginLabels } from "./plugins/index.ts";
 import { useLayout } from "./layout.ts";
 import { navigate, useUrlState } from "./url-state.ts";
 
@@ -503,6 +503,7 @@ export function App() {
       try {
         const current = await api.session();
         setCsrfToken(current.csrfToken);
+        setActivePlugins(current.plugins);
         return current;
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) return null;

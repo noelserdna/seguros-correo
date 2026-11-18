@@ -17,10 +17,11 @@ const schema = z.object({
     .transform((value) => value === "1" || value === "true"),
 
   /**
-   * Módulos opcionales que se cargan, separados por comas. `demo` son los expedientes;
-   * `ocr`, el reconocimiento de texto en fotos y escaneados.
+   * Módulos opcionales que se cargan, separados por comas: `expedientes` (gestión de
+   * expedientes) y `ocr` (texto de fotos y escaneados). Sin ninguno, es un cliente de
+   * correo con contexto.
    */
-  PLUGINS: z.string().default("demo"),
+  PLUGINS: z.string().default(""),
 
   /** Dirección con la que se abre la aplicación en el navegador. Por defecto, este equipo. */
   PUBLIC_URL: z.string().optional(),

@@ -2,7 +2,7 @@
  * Capa de texto: cuerpo limpio de cada correo y texto de sus adjuntos, accesible para la
  * búsqueda y para quien arme el contexto de un expediente. Requiere `pnpm dev:up`.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ImapFlow } from "imapflow";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -13,7 +13,7 @@ import { ExtractionWorker } from "../src/documents/worker.ts";
 import { OcrWorker, setupOcr } from "../src/plugins/ocr/index.ts";
 import { buildApp, CSRF_HEADER, SESSION_COOKIE } from "../src/http/app.ts";
 import type { Account } from "../src/imap/connection.ts";
-import { demoPlugin } from "../src/plugins/demo/index.ts";
+import { expedientesPlugin } from "../src/plugins/expedientes/index.ts";
 import { PluginHost } from "../src/plugins/host.ts";
 import { makeDocx, makePdf } from "./documents.ts";
 import {
@@ -66,7 +66,7 @@ const poliza = makePdf([
 beforeAll(async () => {
   env = await openTestEnv();
   worker = new ExtractionWorker(env.db, env.rawStore);
-  await new PluginHost(env.db, [demoPlugin]).setup();
+  await new PluginHost(env.db, [expedientesPlugin]).setup();
 });
 afterAll(async () => {
   await env.close();
@@ -81,7 +81,7 @@ beforeEach(async () => {
     db: env.db,
     secrets: env.secrets,
     rawStore: env.rawStore,
-    plugins: [demoPlugin],
+    plugins: [expedientesPlugin],
   });
   marta = await createUser(env.db, { email: "marta@c.test", name: "Marta", password: PASSWORD });
   await env.db.insert(accountAccess).values({ userId: marta.id, accountId: account.id });
@@ -299,6 +299,8 @@ describe("texto limpio y accesible", () => {
     expect(await status()).toEqual({ "parte.png": "needs_ocr", "vacia.png": "needs_ocr" });
 
     await setupOcr(env.db);
+    // La tabla del módulo no se vacía con las demás: se parte de cero.
+    await env.db.execute(sql`truncate table ocr_jobs`);
     const ocr = new OcrWorker({ db: env.db, rawStore: env.rawStore });
     try {
       expect(await ocr.drain()).toBe(2);
@@ -363,7 +365,9 @@ describe("texto limpio y accesible", () => {
     await settle();
     const first = await bySubject("Siniestro del camión");
     const reply = await bySubject("RE: Siniestro del camión");
-    const opened = (await call("POST", "/api/plugins/demo/cases", { messageId: first.id })).json<{
+    const opened = (
+      await call("POST", "/api/plugins/expedientes/cases", { messageId: first.id })
+    ).json<{
       case: { id: string };
     }>().case;
 
@@ -376,7 +380,7 @@ describe("texto limpio y accesible", () => {
       withoutText: { needsOcr: number };
       approxTokens: number;
     };
-    const url = `/api/plugins/demo/cases/${opened.id}`;
+    const url = `/api/plugins/expedientes/cases/${opened.id}`;
     const before = (await call("GET", `${url}/context`)).json<Context>();
     expect(before).toMatchObject({
       messages: 2,

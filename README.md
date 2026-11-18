@@ -12,7 +12,7 @@ Estado: validación técnica.
 - Fase 4, acciones con reflejo (leído, bandera, mover, borrar y deshacer): hecha.
 - Fase 5, redactar y enviar (borradores, responder, reenviar, adjuntos, Bandeja de salida y copia en Enviados): hecha.
 - Fase 6, acceso con cuenta de Google y de Microsoft 365: hecha y validada contra los dos proveedores reales.
-- Fase 7, plugin de demostración (expedientes) en los cuatro huecos de la interfaz: hecha.
+- Fase 7, módulo de expedientes en los cuatro huecos de la interfaz: hecha.
 
 ## Requisitos
 
@@ -114,7 +114,12 @@ Librerías, todas de licencia permisiva: `unpdf` (MIT), `mammoth` (BSD-2), `exce
 
 ## Plugins
 
-Un plugin añade funciones sin tocar el núcleo. El de demostración (`expedientes`) existe solo para probar los enganches; no es el módulo de siniestros.
+De serie, la aplicación es un cliente de correo con contexto: correo, texto limpio, lectura de adjuntos, búsqueda y anotaciones. Lo demás son módulos opcionales, que se cargan con la variable `PLUGINS` (separados por comas):
+
+- `expedientes`: agrupar correos en expedientes, con sus datos y su contexto.
+- `ocr`: reconocer el texto de fotos y documentos escaneados (Tesseract en español, dentro del propio servidor).
+
+La interfaz muestra solo los módulos que el servidor tiene cargados. Un plugin añade funciones sin tocar el núcleo.
 
 **En el servidor** (`apps/server/src/plugins/`), un plugin puede tener:
 

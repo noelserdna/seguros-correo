@@ -1,3 +1,4 @@
+import { setActivePlugins } from "../plugins/index.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { api, ApiError, setCsrfToken } from "../api.ts";
@@ -29,6 +30,7 @@ export function Login() {
     mutationFn: () => api.login(email, password),
     onSuccess: (session) => {
       setCsrfToken(session.csrfToken);
+      setActivePlugins(session.plugins);
       queryClient.setQueryData(["session"], session);
     },
   });

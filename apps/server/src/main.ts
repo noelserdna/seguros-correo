@@ -2,7 +2,7 @@
 import { fileURLToPath } from "node:url";
 import { ExtractionWorker } from "./documents/worker.ts";
 import { buildApp } from "./http/app.ts";
-import { demoPlugin } from "./plugins/demo/index.ts";
+import { expedientesPlugin } from "./plugins/expedientes/index.ts";
 import { PluginHost, type ServerPlugin } from "./plugins/host.ts";
 import { ocrPlugin } from "./plugins/ocr/index.ts";
 import { openRuntime } from "./runtime.ts";
@@ -11,7 +11,10 @@ import { SyncService } from "./sync/service.ts";
 const runtime = await openRuntime();
 const sync = new SyncService(runtime);
 
-const available: Record<string, ServerPlugin> = { demo: demoPlugin, ocr: ocrPlugin };
+const available: Record<string, ServerPlugin> = {
+  expedientes: expedientesPlugin,
+  ocr: ocrPlugin,
+};
 const plugins = runtime.config.PLUGINS.split(",")
   .map((id) => id.trim())
   .filter(Boolean)

@@ -1,7 +1,7 @@
 /** Cliente de la API del servidor. Todo va por el mismo origen, con la cookie de sesión. */
 
 export type User = { id: string; email: string; name: string; role: "admin" | "user" };
-export type Session = { user: User; csrfToken: string };
+export type Session = { user: User; csrfToken: string; plugins: string[] };
 
 export type AccountState = "new" | "ok" | "auth_error" | "offline";
 export type Account = {

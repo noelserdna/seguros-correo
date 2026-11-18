@@ -37,7 +37,7 @@ export const authRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
       path: "/",
       maxAge: SESSION_TTL_MS / 1000,
     });
-    return { user, csrfToken };
+    return { user, csrfToken, plugins: (context.plugins ?? []).map((plugin) => plugin.id) };
   });
 
   app.post("/logout", async (request, reply) => {
@@ -50,6 +50,10 @@ export const authRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
 
   app.get("/session", (request) => {
     const session = requireSession(request);
-    return { user: session.user, csrfToken: session.csrfToken };
+    return {
+      user: session.user,
+      csrfToken: session.csrfToken,
+      plugins: (context.plugins ?? []).map((plugin) => plugin.id),
+    };
   });
 };

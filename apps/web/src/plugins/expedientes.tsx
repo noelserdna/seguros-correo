@@ -33,8 +33,8 @@ type CaseMessage = {
 };
 type CaseWithMessages = { case: Case; messages: CaseMessage[] };
 
-const BASE = "/plugins/demo";
-const KEY = ["plugins", "demo"] as const;
+const BASE = "/plugins/expedientes";
+const KEY = ["plugins", "expedientes"] as const;
 const HOW: Record<string, string> = {
   manual: "añadido a mano",
   thread: "por conversación",
@@ -520,8 +520,8 @@ function CaseMenu({
   );
 }
 
-export const demoPlugin: WebPlugin = {
-  id: "demo",
+export const expedientesPlugin: WebPlugin = {
+  id: "expedientes",
   rail: { icon: "case", label: "Expedientes" },
   SettingsSection: InsurerSettings,
 
