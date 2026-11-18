@@ -136,7 +136,9 @@ export function ContextPanel({
                       title={
                         fact.method === "user"
                           ? "Escrito por una persona"
-                          : `Extraído automáticamente (${fact.extractor})${fact.evidence ? `: «${fact.evidence}»` : ""}`
+                          : fact.method === "system"
+                            ? "Anotado automáticamente por el programa"
+                            : `Extraído automáticamente (${fact.extractor})${fact.evidence ? `: «${fact.evidence}»` : ""}`
                       }
                     >
                       {fact.value}

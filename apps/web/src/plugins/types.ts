@@ -19,6 +19,8 @@ export type WebPlugin = {
   useLabels?: (messageIds: string[]) => Map<string, string[]>;
   /** Hueco 3: acción en el extremo derecho de la barra del correo abierto. */
   ToolbarAction?: ComponentType<{ message: MessageDetail; openContext: () => void }>;
+  /** Apartado propio en la pantalla de Configuración. */
+  SettingsSection?: ComponentType<{ isAdmin: boolean }>;
   /** Hueco 4: sección en el panel de contexto. */
   ContextSection?: ComponentType<{ message: MessageDetail; onSelect: (messageId: string) => void }>;
 };

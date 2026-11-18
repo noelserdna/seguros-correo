@@ -40,8 +40,8 @@ let session: Login;
 type Login = { cookie: string; csrf: string };
 type Case = { id: string; number: string; title: string };
 type CaseDetail = {
-  case: Case;
-  messages: { id: string; subject: string; how: string; mailbox: string }[];
+  case: Case & { insurerId: string | null; insurerName: string | null };
+  messages: { id: string; subject: string; how: string; mailbox: string; excluded: boolean }[];
 };
 type ByMessage = { cases: CaseDetail[] };
 
@@ -58,7 +58,12 @@ async function login(email: string): Promise<Login> {
   };
 }
 
-const call = (method: "GET" | "POST" | "DELETE", url: string, payload?: object, as = session) =>
+const call = (
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  url: string,
+  payload?: object,
+  as = session,
+) =>
   app.inject({
     method,
     url,
@@ -294,6 +299,95 @@ describe("expedientes (plugin de demostración)", () => {
       `/api/plugins/demo/cases/${opened.id}/messages/${foreign!.id}`,
     );
     expect(again.statusCode).toBe(404);
+  });
+
+  it("excluye un correo del contexto sin sacarlo del expediente; quitar saca la conversación entera", async () => {
+    await appendMail(outlook, { subject: "Daños por agua", messageId: "<agua@exp.test>" });
+    await appendMail(outlook, {
+      subject: "RE: Daños por agua",
+      messageId: "<agua2@exp.test>",
+      inReplyTo: "<agua@exp.test>",
+      references: ["<agua@exp.test>"],
+    });
+    await settle();
+    const first = await idOf("Daños por agua");
+    const reply = await idOf("RE: Daños por agua");
+    const opened = (await call("POST", "/api/plugins/demo/cases", { messageId: first })).json<{
+      case: Case;
+    }>().case;
+    const url = `/api/plugins/demo/cases/${opened.id}`;
+    const state = async () =>
+      Object.fromEntries(
+        (await call("GET", url)).json<CaseDetail>().messages.map((m) => [m.subject, m.excluded]),
+      );
+
+    const excluded = await call("PUT", `${url}/messages/${reply}`, { excluded: true });
+    expect(excluded.statusCode).toBe(200);
+    expect(await state()).toEqual({ "Daños por agua": false, "RE: Daños por agua": true });
+    await call("PUT", `${url}/messages/${reply}`, { excluded: false });
+    expect(await state()).toEqual({ "Daños por agua": false, "RE: Daños por agua": false });
+
+    // Quitar uno saca los dos: la conversación entra o sale entera.
+    const removed = await call("DELETE", `${url}/messages/${reply}`);
+    expect(removed.json<{ count: number }>().count).toBe(2);
+    expect(await state()).toEqual({});
+    // Y lo que llegue después a ese hilo ya no entra solo.
+    await appendMail(outlook, {
+      subject: "RE: RE: Daños por agua",
+      inReplyTo: "<agua2@exp.test>",
+      references: ["<agua@exp.test>", "<agua2@exp.test>"],
+    });
+    await settle();
+    expect(await state()).toEqual({});
+  });
+
+  it("lleva un catálogo de aseguradoras que solo cambia un administrador, y cada expediente elige la suya", async () => {
+    const admin = await createUser(env.db, {
+      email: "admin@c.test",
+      name: "Admin",
+      password: PASSWORD,
+      role: "admin",
+    });
+    const boss = await login(admin.email);
+    type Insurer = { id: string; name: string; caseCount: number };
+    const insurers = async () =>
+      (await call("GET", "/api/plugins/demo/insurers")).json<{ insurers: Insurer[] }>().insurers;
+
+    expect((await call("POST", "/api/plugins/demo/insurers", { name: "Albor" })).statusCode).toBe(
+      403,
+    );
+    const albor = (
+      await call("POST", "/api/plugins/demo/insurers", { name: " Seguros Albor " }, boss)
+    ).json<{ insurer: Insurer }>().insurer;
+    await call("POST", "/api/plugins/demo/insurers", { name: "Mutua del Ebro" }, boss);
+    const repeated = await call(
+      "POST",
+      "/api/plugins/demo/insurers",
+      { name: "seguros albor" },
+      boss,
+    );
+    expect(repeated.statusCode).toBe(409);
+    expect((await insurers()).map((entry) => entry.name)).toEqual([
+      "Mutua del Ebro",
+      "Seguros Albor",
+    ]);
+
+    await appendMail(outlook, { subject: "Con aseguradora" });
+    await settle();
+    const opened = (
+      await call("POST", "/api/plugins/demo/cases", { messageId: await idOf("Con aseguradora") })
+    ).json<{ case: Case }>().case;
+    const set = await call("PUT", `/api/plugins/demo/cases/${opened.id}`, { insurerId: albor.id });
+    expect(set.json<CaseDetail>().case).toMatchObject({ insurerName: "Seguros Albor" });
+    expect((await insurers()).find((entry) => entry.id === albor.id)?.caseCount).toBe(1);
+
+    // Quitarla del catálogo deja el expediente sin aseguradora, no lo borra.
+    expect((await call("DELETE", `/api/plugins/demo/insurers/${albor.id}`)).statusCode).toBe(403);
+    expect(
+      (await call("DELETE", `/api/plugins/demo/insurers/${albor.id}`, undefined, boss)).statusCode,
+    ).toBe(200);
+    const after = (await call("GET", `/api/plugins/demo/cases/${opened.id}`)).json<CaseDetail>();
+    expect(after.case).toMatchObject({ number: opened.number, insurerId: null, insurerName: null });
   });
 
   it("respeta los permisos del buzón: quien no lo tiene no ve ni crea expedientes", async () => {

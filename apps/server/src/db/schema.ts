@@ -360,7 +360,8 @@ export const messageAddresses = pgTable(
   ],
 );
 
-export type FactMethod = "rule" | "model" | "user";
+/** `system`: lo anota el propio programa a partir de algo que ha pasado (por ejemplo, quién abrió el correo). */
+export type FactMethod = "rule" | "model" | "user" | "system";
 
 /**
  * Datos de negocio ligados a un correo: número de siniestro, póliza, matrícula, tipo de

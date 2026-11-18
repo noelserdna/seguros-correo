@@ -91,6 +91,8 @@ Un correo es un dato a medias estructurado. Se guarda en tres capas:
      La búsqueda de texto incluye asunto, remitente, destinatarios, nombres de adjuntos y cuerpo, y se puede filtrar por participante y por sentido.
 3. **Los datos de negocio** (`message_facts`): número de siniestro, póliza, matrícula, tipo de correo… El núcleo no decide cuáles ni cómo se obtienen; solo los guarda ligados al correo, cada uno con su origen: de qué parte salió, el texto en el que se apoya, quién lo produjo (regla, modelo o persona), con qué confianza y si alguien lo ha revisado.
 
+El único dato que se anota hoy de forma automática es `revisado_por`: el nombre de cada persona que abre el correo, útil en buzones compartidos.
+
 Cómo se rellenan los datos de negocio está por decidir, y es donde entrará la IA. Lo que ya existe es el sitio y el enganche: al terminar de procesar un correo se emite el evento `message.enriched`, y quien lo escuche puede escribir datos con `replaceFacts`, que sustituye los suyos sin tocar los de otros. Una persona también puede añadirlos o quitarlos, y se pueden pedir todos los correos que comparten un dato.
 
 El texto libre no se vectoriza. Si llega a hacer falta, se puede hacer en el mismo Postgres.
@@ -116,10 +118,12 @@ El plugin de expedientes agrupa correos:
 
 - **De cualquier buzón.** Un expediente puede reunir correos de varios buzones, y un correo puede estar en varios expedientes.
 - **Por conversaciones.** Al crear un expediente desde un correo, o al añadir un correo a uno que ya existe, entra toda su conversación. Los correos que lleguen después a esa conversación, o con el número del expediente en el asunto, se añaden solos.
-- **Añadir y quitar a mano,** desde la barra de cualquier correo, con una confirmación en cada caso. Quitar un correo no lo borra ni lo mueve; el resto de su conversación se queda.
+- **Añadir y quitar a mano,** desde la barra de cualquier correo, con una confirmación en cada caso. Se añade o se quita la conversación entera; los correos no se borran ni se mueven.
+- **Excluir del contexto.** Un correo de un hilo puede no tener que ver con el expediente. No se saca: se marca como «fuera del contexto», sigue viéndose y se puede volver a incluir. El contexto es lo que se leerá para resumir o conversar sobre el expediente.
+- **Aseguradora.** Primer dato del expediente que no viene de un correo: se elige en un desplegable, de un catálogo que un administrador mantiene en Configuración.
 - **Con los permisos de siempre.** Quien no tiene un buzón no ve los correos de ese buzón aunque estén en un expediente que sí ve.
 
-Los datos anexos de otras fuentes (documentos, datos de la compañía, notas) aún no tienen sitio en el expediente: es lo siguiente a definir.
+El siguiente paso previsto es poder conversar con cada expediente, incluidos los adjuntos de sus correos. Para eso existen ya el contexto (qué correos cuentan) y los metadatos de correo y de expediente.
 
 Hoy los plugins se compilan con la aplicación: se añaden a una lista en `main.ts` y en `plugins/index.ts`. Cargarlos sin recompilar queda fuera de esta validación.
 

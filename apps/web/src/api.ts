@@ -119,7 +119,7 @@ export type MessageFact = {
   value: string;
   source: string | null;
   evidence: string | null;
-  method: "rule" | "model" | "user";
+  method: "rule" | "model" | "user" | "system";
   extractor: string;
   confidence: number | null;
   confirmed: boolean;
@@ -214,6 +214,8 @@ const post = <T>(path: string, body: object) =>
 /** Para los plugins: llamadas a sus propias rutas con la sesión y el token de siempre. */
 export const apiGet = <T>(path: string) => request<T>(path);
 export const apiPost = post;
+export const apiPut = <T>(path: string, body: object) =>
+  request<T>(path, { method: "PUT", body: JSON.stringify(body) });
 export const apiDelete = <T>(path: string) => request<T>(path, { method: "DELETE" });
 
 export const api = {

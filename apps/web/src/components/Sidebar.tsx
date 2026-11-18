@@ -64,6 +64,8 @@ export function Rail() {
             </button>
           ),
       )}
+      <div className="grow" />
+      <RailButton icon="gear" label="Configuración" view="settings" current={view} />
     </nav>
   );
 }

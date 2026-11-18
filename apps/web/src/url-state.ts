@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 /** Dónde está el usuario. Vive en la dirección de la página, para que Atrás y recargar funcionen. */
-export type View = "mail" | "archive" | "search" | "outbox" | "plugin";
+export type View = "mail" | "archive" | "search" | "outbox" | "plugin" | "settings";
 export type UrlState = {
   view: View;
   accountId: string | null;
@@ -31,7 +31,11 @@ function read(): UrlState {
   cachedSearch = search;
   cachedState = {
     view:
-      view === "archive" || view === "search" || view === "outbox" || view === "plugin"
+      view === "archive" ||
+      view === "search" ||
+      view === "outbox" ||
+      view === "plugin" ||
+      view === "settings"
         ? view
         : "mail",
     pluginId: params.get("p"),

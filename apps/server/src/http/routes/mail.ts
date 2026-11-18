@@ -10,6 +10,7 @@ import {
   messages,
   outboundMessages,
 } from "../../db/schema.ts";
+import { addFact } from "../../facts/facts.ts";
 import { assertAccess } from "../access.ts";
 import { audit, notFound, requireSession, type RouteOptions } from "../app.ts";
 import { publicAccount } from "./admin.ts";
@@ -159,6 +160,20 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
             ),
           )
       : [];
+
+    // Queda anotado en el propio correo quién lo ha abierto: en un buzón compartido
+    // es la forma de saber si alguien lo ha visto ya.
+    await addFact(
+      db,
+      {
+        accountId: message.accountId,
+        messageId: id,
+        extractor: "sistema:lectura",
+        method: "system",
+      },
+      { kind: "revisado_por", value: user.name, detail: { userId: user.id } },
+      user.id,
+    );
 
     await audit(db, {
       userId: user.id,

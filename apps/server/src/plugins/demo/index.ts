@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Db } from "../../db/client.ts";
 import { events, messages } from "../../db/schema.ts";
 import { accessibleAccountIds, assertAccess } from "../../http/access.ts";
-import { audit, notFound, requireSession } from "../../http/app.ts";
+import { audit, HttpError, notFound, requireAdmin, requireSession } from "../../http/app.ts";
 import type { MailEvent, ServerPlugin } from "../host.ts";
 
 /**
@@ -14,7 +14,15 @@ import type { MailEvent, ServerPlugin } from "../host.ts";
 
 const REFERENCE = /EXP-\d{4}-\d{4}/i;
 
-type CaseRow = { id: string; accountId: string; number: string; title: string; createdAt: Date };
+type CaseRow = {
+  id: string;
+  accountId: string;
+  number: string;
+  title: string;
+  createdAt: Date;
+  insurerId: string | null;
+  insurerName: string | null;
+};
 type CaseMessage = {
   id: string;
   subject: string;
@@ -22,6 +30,8 @@ type CaseMessage = {
   fromAddress: string;
   internalDate: Date;
   how: string;
+  /** Sigue en el expediente, pero no cuenta como contexto. */
+  excluded: boolean;
   /** Buzón en el que está el correo: un expediente puede reunir correos de varios. */
   mailbox: string;
 };
@@ -55,9 +65,32 @@ async function setup(db: Db): Promise<void> {
   await db.execute(sql`
     create index if not exists demo_case_messages_message on demo_case_messages (message_id)`);
   await db.execute(sql`create sequence if not exists demo_case_seq`);
+
+  // Un correo puede seguir en el expediente y quedar fuera del contexto (lo que se lee
+  // para resumir o conversar sobre el expediente).
+  await db.execute(sql`
+    alter table demo_case_messages
+      add column if not exists excluded boolean not null default false,
+      add column if not exists excluded_by uuid,
+      add column if not exists excluded_at timestamptz`);
+
+  // Primer dato del expediente que no viene de un correo: la aseguradora, de un catálogo propio.
+  await db.execute(sql`
+    create table if not exists demo_insurers (
+      id uuid primary key default gen_random_uuid(),
+      name text not null,
+      created_at timestamptz not null default now()
+    )`);
+  await db.execute(sql`
+    create unique index if not exists demo_insurers_name on demo_insurers (lower(name))`);
+  await db.execute(sql`
+    alter table demo_cases
+      add column if not exists insurer_id uuid references demo_insurers(id) on delete set null`);
 }
 
-const caseColumns = sql`c.id, c.account_id as "accountId", c.number, c.title, c.created_at as "createdAt"`;
+const caseColumns = sql`c.id, c.account_id as "accountId", c.number, c.title, c.created_at as "createdAt",
+  c.insurer_id as "insurerId",
+  (select i.name from demo_insurers i where i.id = c.insurer_id) as "insurerName"`;
 
 async function casesOfMessage(db: Db, messageId: string): Promise<CaseRow[]> {
   const found = await db.execute<CaseRow>(sql`
@@ -86,7 +119,7 @@ const messagesOfCase = async (db: Db, caseId: string, accountIds: string[]) =>
           select * from (
             select distinct on (coalesce(m.message_id_header, m.id::text))
                    m.id, m.subject, m.from_name as "fromName", m.from_address as "fromAddress",
-                   m.internal_date as "internalDate", cm.how, cm.added_at,
+                   m.internal_date as "internalDate", cm.how, cm.excluded, cm.added_at,
                    a.email as "mailbox"
               from demo_case_messages cm
               join messages m on m.id = cm.message_id
@@ -143,6 +176,9 @@ const labelsBody = z.object({ messageIds: z.array(z.uuid()).max(500) });
 const listQuery = z.object({ accountId: z.uuid().optional() });
 
 const memberParams = z.object({ id: z.uuid(), messageId: z.uuid() });
+const excludeBody = z.object({ excluded: z.boolean() });
+const caseBody = z.object({ insurerId: z.uuid().nullable() });
+const insurerBody = z.object({ name: z.string().trim().min(1).max(120) });
 
 export const demoPlugin: ServerPlugin = {
   id: "demo",
@@ -232,24 +268,113 @@ export const demoPlugin: ServerPlugin = {
       return { case: row, added: added.rows.length > 0, count: added.rows.length };
     });
 
-    // Quitar un correo del expediente. El correo no se toca: solo deja de estar agrupado.
+    // Quitar del expediente: sale la conversación entera, porque un hilo entra o no entra.
+    // Los correos no se tocan: solo dejan de estar agrupados.
     app.delete("/cases/:id/messages/:messageId", async (request) => {
       const { user } = requireSession(request);
       const { id, messageId } = memberParams.parse(request.params);
       const row = await loadCase(user.id, id);
       const message = await loadMessage(user.id, messageId);
       const removed = await db.execute(sql`
-        delete from demo_case_messages
-         where case_id = ${id} and message_id = ${messageId} returning message_id`);
+        delete from demo_case_messages cm using messages m
+         where cm.case_id = ${id} and m.id = cm.message_id
+           and (m.id = ${messageId}
+                or (m.thread_id = ${message.threadId} and m.account_id = ${message.accountId}))
+        returning cm.message_id`);
       if (removed.rows.length === 0) throw notFound();
       await audit(db, {
         userId: user.id,
         accountId: message.accountId,
-        action: "plugin.demo.message_removed",
+        action: "plugin.demo.thread_removed",
+        target: id,
+        detail: { number: row.number, messageId, count: removed.rows.length },
+      });
+      await notify(db, message.accountId, messageId);
+      return { ok: true, count: removed.rows.length };
+    });
+
+    // Dejar un correo fuera del contexto del expediente, o volver a incluirlo.
+    app.put("/cases/:id/messages/:messageId", async (request) => {
+      const { user } = requireSession(request);
+      const { id, messageId } = memberParams.parse(request.params);
+      const { excluded } = excludeBody.parse(request.body);
+      const row = await loadCase(user.id, id);
+      const message = await loadMessage(user.id, messageId);
+      const changed = await db.execute(sql`
+        update demo_case_messages
+           set excluded = ${excluded},
+               excluded_by = ${excluded ? user.id : null},
+               excluded_at = ${excluded ? sql`now()` : null}
+         where case_id = ${id} and message_id = ${messageId} returning message_id`);
+      if (changed.rows.length === 0) throw notFound();
+      await audit(db, {
+        userId: user.id,
+        accountId: message.accountId,
+        action: excluded ? "plugin.demo.message_excluded" : "plugin.demo.message_included",
         target: id,
         detail: { number: row.number, messageId },
       });
       await notify(db, message.accountId, messageId);
+      return { ok: true, excluded };
+    });
+
+    // La aseguradora del expediente.
+    app.put("/cases/:id", async (request) => {
+      const { user } = requireSession(request);
+      const { id } = idParams.parse(request.params);
+      const { insurerId } = caseBody.parse(request.body);
+      const row = await loadCase(user.id, id);
+      if (insurerId) {
+        const known = await db.execute(sql`select 1 from demo_insurers where id = ${insurerId}`);
+        if (known.rows.length === 0) throw notFound();
+      }
+      await db.execute(sql`update demo_cases set insurer_id = ${insurerId} where id = ${id}`);
+      await audit(db, {
+        userId: user.id,
+        accountId: row.accountId,
+        action: "plugin.demo.case_updated",
+        target: id,
+        detail: { number: row.number, insurerId },
+      });
+      await notify(db, row.accountId);
+      return { case: await loadCase(user.id, id) };
+    });
+
+    // Catálogo de aseguradoras. Lo lee cualquiera; lo cambia un administrador.
+    app.get("/insurers", async (request) => {
+      requireSession(request);
+      const rows = await db.execute(sql`
+        select i.id, i.name,
+               (select count(*)::int from demo_cases c where c.insurer_id = i.id) as "caseCount"
+          from demo_insurers i order by lower(i.name)`);
+      return { insurers: rows.rows };
+    });
+
+    app.post("/insurers", async (request) => {
+      const { user } = requireAdmin(request);
+      const { name } = insurerBody.parse(request.body);
+      const created = await db.execute<{ id: string; name: string }>(sql`
+        insert into demo_insurers (name) values (${name})
+        on conflict do nothing returning id, name`);
+      if (!created.rows[0]) {
+        throw new HttpError(409, "duplicate", "Ya hay una aseguradora con ese nombre.");
+      }
+      await audit(db, { userId: user.id, action: "plugin.demo.insurer_added", target: name });
+      return { insurer: { ...created.rows[0], caseCount: 0 } };
+    });
+
+    app.delete("/insurers/:id", async (request) => {
+      const { user } = requireAdmin(request);
+      const { id } = idParams.parse(request.params);
+      const removed = await db.execute<{ name: string }>(
+        sql`delete from demo_insurers where id = ${id} returning name`,
+      );
+      if (!removed.rows[0]) throw notFound();
+      await audit(db, {
+        userId: user.id,
+        action: "plugin.demo.insurer_removed",
+        target: removed.rows[0].name,
+      });
       return { ok: true };
     });
 

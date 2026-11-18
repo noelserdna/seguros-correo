@@ -10,6 +10,7 @@ import {
   type Session,
 } from "./api.ts";
 import { Composer } from "./components/Composer.tsx";
+import { SettingsView } from "./components/SettingsView.tsx";
 import { OutboxList } from "./components/Outbox.tsx";
 import { ContextPanel } from "./components/ContextPanel.tsx";
 import { Icon } from "./components/Icon.tsx";
@@ -331,88 +332,98 @@ function Mailbox({ session }: { session: Session }) {
           }
         />
 
-        {url.view === "outbox" && accountId ? (
-          <OutboxList
-            accountId={accountId}
-            onOpen={openDraft}
-            onError={(detail) =>
-              showToast({ tone: "error", title: "No se ha podido deshacer el envío", detail })
-            }
-          />
-        ) : url.view === "search" ? (
-          <SearchView
-            selectedId={url.messageId}
-            onSelect={select}
-            compact={Boolean(url.messageId)}
-          />
-        ) : activePlugin?.View ? (
-          <activePlugin.View accountId={accountId} selectedId={url.messageId} onSelect={select} />
+        {url.view === "settings" ? (
+          <SettingsView isAdmin={session.user.role === "admin"} />
         ) : (
-          <MessageList
-            labels={labels}
-            title={url.view === "archive" ? "Archivo" : folder ? folderName(folder) : "Correo"}
-            subtitle={
-              url.view === "archive"
-                ? account?.name
-                : folder && folder.unread > 0
-                  ? `${folder.unread} sin leer`
-                  : undefined
-            }
-            items={items}
-            isLoading={
-              list.isLoading || (url.view === "mail" && !url.folderId && !accounts.isError)
-            }
-            isError={list.isError}
-            hasMore={Boolean(hasNextPage)}
-            loadMore={loadMore}
-            onRetry={() => void list.refetch()}
-            selectedId={url.messageId}
-            onSelect={select}
-            archived={url.view === "archive"}
-            empty={
-              url.view === "archive" ? (
-                <>
-                  <Icon name="archive" size={28} className="text-ink-2" />
-                  <h3 className="m-0 text-sm font-semibold">El archivo está vacío</h3>
-                  <p className="m-0 text-xs leading-normal text-ink-2">
-                    Aquí aparecerán los correos que se borren o se vacíen del buzón del servidor. No
-                    se pierden: se conservan aquí.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <Icon name="folder" size={28} className="text-ink-2" />
-                  <h3 className="m-0 text-sm font-semibold">No hay correos en esta carpeta</h3>
-                  <p className="m-0 text-xs leading-normal text-ink-2">
-                    Cuando muevas correos aquí, desde esta ventana o desde Outlook, aparecerán al
-                    momento.
-                  </p>
-                </>
-              )
-            }
-          />
-        )}
+          <>
+            {url.view === "outbox" && accountId ? (
+              <OutboxList
+                accountId={accountId}
+                onOpen={openDraft}
+                onError={(detail) =>
+                  showToast({ tone: "error", title: "No se ha podido deshacer el envío", detail })
+                }
+              />
+            ) : url.view === "search" ? (
+              <SearchView
+                selectedId={url.messageId}
+                onSelect={select}
+                compact={Boolean(url.messageId)}
+              />
+            ) : activePlugin?.View ? (
+              <activePlugin.View
+                accountId={accountId}
+                selectedId={url.messageId}
+                onSelect={select}
+              />
+            ) : (
+              <MessageList
+                labels={labels}
+                title={url.view === "archive" ? "Archivo" : folder ? folderName(folder) : "Correo"}
+                subtitle={
+                  url.view === "archive"
+                    ? account?.name
+                    : folder && folder.unread > 0
+                      ? `${folder.unread} sin leer`
+                      : undefined
+                }
+                items={items}
+                isLoading={
+                  list.isLoading || (url.view === "mail" && !url.folderId && !accounts.isError)
+                }
+                isError={list.isError}
+                hasMore={Boolean(hasNextPage)}
+                loadMore={loadMore}
+                onRetry={() => void list.refetch()}
+                selectedId={url.messageId}
+                onSelect={select}
+                archived={url.view === "archive"}
+                empty={
+                  url.view === "archive" ? (
+                    <>
+                      <Icon name="archive" size={28} className="text-ink-2" />
+                      <h3 className="m-0 text-sm font-semibold">El archivo está vacío</h3>
+                      <p className="m-0 text-xs leading-normal text-ink-2">
+                        Aquí aparecerán los correos que se borren o se vacíen del buzón del
+                        servidor. No se pierden: se conservan aquí.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="folder" size={28} className="text-ink-2" />
+                      <h3 className="m-0 text-sm font-semibold">No hay correos en esta carpeta</h3>
+                      <p className="m-0 text-xs leading-normal text-ink-2">
+                        Cuando muevas correos aquí, desde esta ventana o desde Outlook, aparecerán
+                        al momento.
+                      </p>
+                    </>
+                  )
+                }
+              />
+            )}
 
-        {url.composeId ? (
-          <Composer
-            id={url.composeId}
-            accounts={accounts.data ?? []}
-            onClose={closeComposer}
-            onSent={onSent}
-          />
-        ) : (
-          (url.view !== "search" || url.messageId) && (
-            <ReadingPane
-              messageId={url.messageId}
-              onSelect={select}
-              onLoaded={onLoaded}
-              actions={canAct ? actions : undefined}
-              folderId={url.view === "mail" ? url.folderId : null}
-              onCompose={compose}
-              onEditDraft={openDraft}
-              toolbarExtra={toolbarExtra}
-            />
-          )
+            {url.composeId ? (
+              <Composer
+                id={url.composeId}
+                accounts={accounts.data ?? []}
+                onClose={closeComposer}
+                onSent={onSent}
+              />
+            ) : (
+              (url.view !== "search" || url.messageId) && (
+                <ReadingPane
+                  messageId={url.messageId}
+                  onSelect={select}
+                  onLoaded={onLoaded}
+                  actions={canAct ? actions : undefined}
+                  folderId={url.view === "mail" ? url.folderId : null}
+                  onCompose={compose}
+                  onEditDraft={openDraft}
+                  toolbarExtra={toolbarExtra}
+                />
+              )
+            )}
+          </>
         )}
 
         {contextOpen && (

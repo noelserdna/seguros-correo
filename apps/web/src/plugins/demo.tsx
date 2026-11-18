@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ApiError, apiDelete, apiGet, apiPost, type MessageDetail } from "../api.ts";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { ApiError, apiDelete, apiGet, apiPost, apiPut, type MessageDetail } from "../api.ts";
 import { Confirm } from "../components/Confirm.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { displayName, formatListDate } from "../format.ts";
@@ -11,7 +11,14 @@ import type { WebPlugin } from "./types.ts";
  * puede estar en varios. Usa solo sus propias rutas y los huecos de la interfaz.
  */
 
-type Case = { id: string; number: string; title: string };
+type Case = {
+  id: string;
+  number: string;
+  title: string;
+  insurerId?: string | null;
+  insurerName?: string | null;
+};
+type Insurer = { id: string; name: string; caseCount: number };
 type CaseSummary = Case & { messageCount: number; lastMessageAt: string | null };
 type CaseMessage = {
   id: string;
@@ -20,6 +27,8 @@ type CaseMessage = {
   fromAddress: string;
   internalDate: string;
   how: "manual" | "thread" | "reference";
+  /** Sigue en el expediente, pero no cuenta como contexto. */
+  excluded: boolean;
   mailbox: string;
 };
 type CaseWithMessages = { case: Case; messages: CaseMessage[] };
@@ -43,6 +52,12 @@ const useAllCases = (enabled = true) =>
     queryKey: [...KEY, "cases"],
     queryFn: () => apiGet<{ cases: CaseSummary[] }>(`${BASE}/cases`),
     enabled,
+  });
+
+const useInsurers = () =>
+  useQuery({
+    queryKey: [...KEY, "insurers"],
+    queryFn: () => apiGet<{ insurers: Insurer[] }>(`${BASE}/insurers`),
   });
 
 /** Lo que se va a hacer con un correo y un expediente, pendiente de confirmar. */
@@ -94,7 +109,7 @@ function useCaseChanges() {
     dialog =
       pending.kind === "remove" ? (
         <Confirm
-          title={`¿Quitar este correo de ${pending.target.number}?`}
+          title={`¿Quitar esta conversación de ${pending.target.number}?`}
           confirmLabel="Quitar del expediente"
           danger
           busy={busy}
@@ -102,9 +117,10 @@ function useCaseChanges() {
           onCancel={close}
         >
           <p className="m-0">
-            «{subject}» dejará de estar en el expediente «{pending.target.title}». Solo se quita
-            este correo; el resto de su conversación sigue en el expediente. No se borra ni se
-            mueve, y podrás volver a añadirlo.
+            «{subject}» y el resto de su conversación dejarán de estar en el expediente «
+            {pending.target.title}». Los correos no se borran ni se mueven, y podrás volver a
+            añadirlos. Si solo quieres que un correo no se tenga en cuenta, déjalo en el expediente
+            y exclúyelo del contexto.
           </p>
           {problem}
         </Confirm>
@@ -144,15 +160,25 @@ function useCaseChanges() {
 
 function MessageLine({
   entry,
+  caseId,
   current,
   onSelect,
-  onRemove,
 }: {
   entry: CaseMessage;
+  caseId: string;
   current: boolean;
   onSelect: (id: string) => void;
-  onRemove: () => void;
 }) {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const toggle = () => {
+    setBusy(true);
+    apiPut(`${BASE}/cases/${caseId}/messages/${entry.id}`, { excluded: !entry.excluded })
+      .then(() => queryClient.invalidateQueries({ queryKey: KEY }))
+      .catch(() => undefined)
+      .finally(() => setBusy(false));
+  };
+  const subject = entry.subject || "(sin asunto)";
   return (
     <div
       className={`flex items-stretch rounded-md border ${
@@ -163,7 +189,9 @@ function MessageLine({
         type="button"
         onClick={() => onSelect(entry.id)}
         aria-current={current ? "true" : undefined}
-        className="flex min-w-0 grow flex-col gap-0.5 rounded-l-md border-0 bg-transparent px-2.5 py-2 text-left text-xs text-ink hover:bg-ground"
+        className={`flex min-w-0 grow flex-col gap-0.5 rounded-l-md border-0 bg-transparent px-2.5 py-2 text-left text-xs text-ink hover:bg-ground ${
+          entry.excluded ? "opacity-60" : ""
+        }`}
       >
         <span className="flex gap-2">
           <span className="min-w-0 grow truncate font-semibold">
@@ -171,21 +199,175 @@ function MessageLine({
           </span>
           <span className="whitespace-nowrap text-ink-2">{formatListDate(entry.internalDate)}</span>
         </span>
-        <span className="truncate">{entry.subject || "(sin asunto)"}</span>
+        <span className={`truncate ${entry.excluded ? "line-through" : ""}`}>{subject}</span>
         <span className="truncate text-ink-2">
-          {HOW[entry.how] ?? entry.how} · {entry.mailbox}
+          {entry.excluded ? "Fuera del contexto" : (HOW[entry.how] ?? entry.how)} · {entry.mailbox}
         </span>
       </button>
       <button
         type="button"
-        onClick={onRemove}
-        aria-label={`Quitar del expediente: ${entry.subject || "(sin asunto)"}`}
-        title="Quitar del expediente"
-        className="flex w-8 shrink-0 items-center justify-center rounded-r-md border-0 border-l border-line bg-transparent text-ink-2 hover:bg-ground hover:text-bad-ink"
+        onClick={toggle}
+        disabled={busy}
+        aria-pressed={entry.excluded}
+        aria-label={
+          entry.excluded
+            ? `Volver a incluir en el contexto: ${subject}`
+            : `Excluir del contexto: ${subject}`
+        }
+        title={
+          entry.excluded
+            ? "Fuera del contexto. Pulsa para volver a tenerlo en cuenta."
+            : "Excluir del contexto: sigue en el expediente, pero no se tendrá en cuenta."
+        }
+        className="flex w-8 shrink-0 items-center justify-center rounded-r-md border-0 border-l border-line bg-transparent text-ink-2 hover:bg-ground hover:text-ink"
       >
-        <Icon name="close" size={12} />
+        <Icon name={entry.excluded ? "eyeOff" : "eye"} size={14} />
       </button>
     </div>
+  );
+}
+
+/** Desplegable con la aseguradora del expediente, tomada del catálogo de Configuración. */
+function InsurerSelect({ item }: { item: Case }) {
+  const queryClient = useQueryClient();
+  const insurers = useInsurers();
+  const change = (value: string) => {
+    apiPut(`${BASE}/cases/${item.id}`, { insurerId: value || null })
+      .then(() => queryClient.invalidateQueries({ queryKey: KEY }))
+      .catch(() => undefined);
+  };
+  return (
+    <label className="flex items-center gap-2 text-xs">
+      <span className="shrink-0 text-ink-2">Aseguradora</span>
+      <select
+        value={item.insurerId ?? ""}
+        onChange={(event) => change(event.target.value)}
+        className="h-7 min-w-0 grow rounded-md border border-line-strong bg-panel px-1.5 text-xs text-ink"
+      >
+        <option value="">Sin aseguradora</option>
+        {(insurers.data?.insurers ?? []).map((entry) => (
+          <option key={entry.id} value={entry.id}>
+            {entry.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** Apartado de Configuración: el catálogo de aseguradoras. */
+function InsurerSettings({ isAdmin }: { isAdmin: boolean }) {
+  const queryClient = useQueryClient();
+  const insurers = useInsurers();
+  const [name, setName] = useState("");
+  const [failed, setFailed] = useState("");
+  const [removing, setRemoving] = useState<Insurer | null>(null);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: KEY });
+  const fail = (error: unknown) =>
+    setFailed(error instanceof ApiError ? error.message : "No se ha podido guardar el cambio.");
+
+  const add = (event: FormEvent) => {
+    event.preventDefault();
+    if (!name.trim()) return;
+    setFailed("");
+    apiPost(`${BASE}/insurers`, { name })
+      .then(() => {
+        setName("");
+        return refresh();
+      })
+      .catch(fail);
+  };
+  const remove = () => {
+    if (!removing) return;
+    apiDelete(`${BASE}/insurers/${removing.id}`)
+      .then(() => {
+        setRemoving(null);
+        return refresh();
+      })
+      .catch((error: unknown) => {
+        setRemoving(null);
+        fail(error);
+      });
+  };
+  const list = insurers.data?.insurers ?? [];
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-line p-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="m-0 text-[15px] font-semibold">Aseguradoras</h2>
+        <p className="m-0 text-xs leading-normal text-ink-2">
+          Las que aparecen en el desplegable «Aseguradora» de cada expediente.
+        </p>
+      </div>
+      {isAdmin && (
+        <form onSubmit={add} className="flex gap-2">
+          <label htmlFor="nueva-aseguradora" className="sr-only">
+            Nombre de la aseguradora
+          </label>
+          <input
+            id="nueva-aseguradora"
+            type="text"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Nombre de la aseguradora"
+            className="h-9 min-w-0 grow rounded-md border border-line-strong bg-panel px-2.5 text-[13px] text-ink"
+          />
+          <button
+            type="submit"
+            className="h-9 rounded-md border-0 bg-accent px-3.5 font-semibold text-white"
+          >
+            Añadir
+          </button>
+        </form>
+      )}
+      {failed && (
+        <p role="alert" className="m-0 text-xs text-bad-ink">
+          {failed}
+        </p>
+      )}
+      {insurers.isSuccess && list.length === 0 && (
+        <p className="m-0 text-xs text-ink-2">Todavía no hay ninguna.</p>
+      )}
+      <ul className="m-0 flex list-none flex-col p-0">
+        {list.map((entry) => (
+          <li
+            key={entry.id}
+            className="flex items-center gap-3 border-t border-line-soft py-2 first:border-t-0"
+          >
+            <span className="min-w-0 grow truncate">{entry.name}</span>
+            <span className="text-xs whitespace-nowrap text-ink-2">
+              {entry.caseCount === 1 ? "1 expediente" : `${entry.caseCount} expedientes`}
+            </span>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setRemoving(entry)}
+                className="h-7 rounded-md border border-line-strong bg-panel px-2 text-xs font-semibold text-ink hover:bg-ground"
+              >
+                Quitar
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {removing && (
+        <Confirm
+          title={`¿Quitar «${removing.name}» de las aseguradoras?`}
+          confirmLabel="Quitar aseguradora"
+          danger
+          onConfirm={remove}
+          onCancel={() => setRemoving(null)}
+        >
+          <p className="m-0">
+            {removing.caseCount === 0
+              ? "Ningún expediente la tiene asignada."
+              : removing.caseCount === 1
+                ? "Hay 1 expediente que la tiene asignada: se quedará sin aseguradora. El expediente y sus correos no se tocan."
+                : `Hay ${removing.caseCount} expedientes que la tienen asignada: se quedarán sin aseguradora. Los expedientes y sus correos no se tocan.`}
+          </p>
+        </Confirm>
+      )}
+    </section>
   );
 }
 
@@ -305,6 +487,7 @@ function CaseMenu({
 export const demoPlugin: WebPlugin = {
   id: "demo",
   rail: { icon: "case", label: "Expedientes" },
+  SettingsSection: InsurerSettings,
 
   View({ selectedId, onSelect }) {
     const [openId, setOpenId] = useState<string | null>(null);
@@ -364,20 +547,14 @@ export const demoPlugin: WebPlugin = {
                 </button>
                 {open && (
                   <div className="flex flex-col gap-1.5 bg-ground px-3 py-2.5">
+                    <InsurerSelect item={item} />
                     {(detail.data?.messages ?? []).map((entry) => (
                       <MessageLine
                         key={entry.id}
                         entry={entry}
+                        caseId={item.id}
                         current={entry.id === selectedId}
                         onSelect={onSelect}
-                        onRemove={() =>
-                          changes.ask({
-                            kind: "remove",
-                            target: item,
-                            messageId: entry.id,
-                            subject: entry.subject,
-                          })
-                        }
                       />
                     ))}
                     {detail.isSuccess && detail.data.messages.length === 0 && (
@@ -473,20 +650,14 @@ export const demoPlugin: WebPlugin = {
             <span className="font-semibold">
               {item.number} · {item.title}
             </span>
+            <InsurerSelect item={item} />
             {messages.map((entry) => (
               <MessageLine
                 key={entry.id}
                 entry={entry}
+                caseId={item.id}
                 current={entry.id === message.id}
                 onSelect={onSelect}
-                onRemove={() =>
-                  changes.ask({
-                    kind: "remove",
-                    target: item,
-                    messageId: entry.id,
-                    subject: entry.subject,
-                  })
-                }
               />
             ))}
           </section>

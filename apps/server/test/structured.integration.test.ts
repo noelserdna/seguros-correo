@@ -274,6 +274,26 @@ describe("datos de negocio ligados al correo", () => {
     expect(after.json<{ items: unknown[] }>().items).toHaveLength(1);
   });
 
+  it("anota en el correo quién lo ha abierto, una vez por persona", async () => {
+    const message = await bySubject("Documentación pendiente");
+    await env.db.insert(accountAccess).values({ userId: pedro.id, accountId: account.id });
+    const other = await login(pedro.email);
+
+    await call("GET", `/api/messages/${message.id}`);
+    await call("GET", `/api/messages/${message.id}`);
+    await call("GET", `/api/messages/${message.id}`, undefined, other);
+
+    const listed = await call("GET", `/api/messages/${message.id}/facts`);
+    expect(listed.json<{ facts: FactView[] }>().facts).toMatchObject([
+      { kind: "revisado_por", value: "Marta", method: "system", confirmed: true },
+      { kind: "revisado_por", value: "Pedro", method: "system", confirmed: true },
+    ]);
+    const found = await call("GET", "/api/facts/messages?kind=revisado_por&value=Pedro");
+    expect(found.json<{ items: { subject: string }[] }>().items.map((i) => i.subject)).toEqual([
+      "Documentación pendiente",
+    ]);
+  });
+
   it("respeta los permisos del buzón", async () => {
     const message = await bySubject("Documentación pendiente");
     await call("POST", `/api/messages/${message.id}/facts`, { kind: "siniestro", value: "X" });
