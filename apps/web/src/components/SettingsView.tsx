@@ -92,6 +92,52 @@ function ProcessingSummary() {
   );
 }
 
+/** Qué módulos opcionales hay y cuáles están en marcha. */
+function Modules() {
+  const modules = useQuery({ queryKey: ["modules"], queryFn: api.modules });
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-line p-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="m-0 text-sm font-semibold">Módulos</h2>
+        <p className="m-0 text-xs text-ink-2">
+          De serie es un cliente de correo con contexto. Los módulos añaden funciones encima; los
+          activa quien administra el servidor.
+        </p>
+      </div>
+      {modules.isError && (
+        <p role="alert" className="m-0 text-xs text-ink-2">
+          No se ha podido consultar qué módulos hay.
+        </p>
+      )}
+      <ul className="m-0 flex list-none flex-col p-0">
+        {modules.data?.map((module) => (
+          <li
+            key={module.id}
+            className="flex items-start gap-3 border-t border-line-soft py-2 first:border-t-0"
+          >
+            <div className="flex min-w-0 grow flex-col gap-0.5">
+              <span className="font-semibold">{module.name}</span>
+              <span className="text-xs leading-normal text-ink-2">{module.description}</span>
+            </div>
+            <span
+              className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${
+                module.active
+                  ? "border-accent bg-accent-soft text-accent-strong"
+                  : "border-line-strong bg-ground text-ink-2"
+              }`}
+            >
+              {module.active ? "Activo" : "Sin activar"}
+            </span>
+          </li>
+        ))}
+        {modules.data?.length === 0 && (
+          <li className="text-xs text-ink-2">Esta instalación no tiene módulos.</li>
+        )}
+      </ul>
+    </section>
+  );
+}
+
 /** Pantalla de Configuración. Cada plugin aporta su apartado. */
 export function SettingsView({ isAdmin }: { isAdmin: boolean }) {
   const sections = plugins.filter((plugin) => plugin.SettingsSection);
@@ -106,6 +152,7 @@ export function SettingsView({ isAdmin }: { isAdmin: boolean }) {
             </p>
           )}
         </div>
+        <Modules />
         <ProcessingSummary />
         {sections.map(
           (plugin) =>

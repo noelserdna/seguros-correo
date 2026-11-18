@@ -341,6 +341,10 @@ export const api = {
   oauthStart: (provider: string) => post<{ url: string }>(`/admin/oauth/${provider}/start`, {}),
   undo: (actionId: string) => post<ActionReply>(`/actions/${actionId}/undo`, {}),
   processing: () => request<ProcessingSummary>("/processing"),
+  modules: () =>
+    request<{ modules: { id: string; name: string; description: string; active: boolean }[] }>(
+      "/modules",
+    ).then((data) => data.modules),
   attachmentText: (id: string) => request<AttachmentText>(`/attachments/${id}/text`),
   saveAttachmentNote: (id: string, text: string) =>
     request<{ note: AttachmentNote | null }>(`/attachments/${id}/note`, {

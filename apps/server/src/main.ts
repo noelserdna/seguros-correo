@@ -33,6 +33,7 @@ documents.start();
 
 const app = await buildApp({
   plugins,
+  availablePlugins: Object.values(available),
   db: runtime.db,
   secrets: runtime.secrets,
   rawStore: runtime.rawStore,

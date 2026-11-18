@@ -133,6 +133,9 @@ let worker: OcrWorker | null = null;
 
 export const ocrPlugin: ServerPlugin = {
   id: "ocr",
+  name: "Reconocimiento de texto",
+  description:
+    "Lee el texto de fotos y documentos escaneados, en español y sin salir del servidor.",
   setup: setupOcr,
   start(services) {
     worker = new OcrWorker(services);

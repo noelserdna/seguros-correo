@@ -56,6 +56,8 @@ export type AppDeps = {
   webDir?: string;
   /** Plugins activos. Sus rutas cuelgan de `/api/plugins/<id>`. */
   plugins?: ServerPlugin[];
+  /** Todos los módulos que esta instalación podría cargar, activos o no. */
+  availablePlugins?: ServerPlugin[];
   /** Se llama al dar de alta un buzón, para empezar a sincronizarlo. */
   onAccountCreated?: (account: Account) => void;
   /** Se llama al encolar una acción, para que el buzón la atienda cuanto antes. */

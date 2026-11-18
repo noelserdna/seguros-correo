@@ -196,6 +196,9 @@ const insurerBody = z.object({ name: z.string().trim().min(1).max(120) });
 
 export const expedientesPlugin: ServerPlugin = {
   id: "expedientes",
+  name: "Expedientes",
+  description:
+    "Agrupa correos de cualquier buzón en expedientes, con su aseguradora y la medida de su contexto.",
   setup,
   onEvent,
   routes: async (app, { context }) => {

@@ -121,6 +121,15 @@ afterEach(async () => {
 });
 
 describe("módulo de expedientes", () => {
+  it("la sesión y Configuración dicen qué módulos hay cargados", async () => {
+    const sessionInfo = (await call("GET", "/api/auth/session")).json<{ plugins: string[] }>();
+    expect(sessionInfo.plugins).toEqual(["expedientes"]);
+    const modules = (await call("GET", "/api/modules")).json<{
+      modules: { id: string; name: string; active: boolean }[];
+    }>().modules;
+    expect(modules).toMatchObject([{ id: "expedientes", name: "Expedientes", active: true }]);
+  });
+
   it("crea un expediente desde un correo y mete en él toda su conversación", async () => {
     await appendMail(outlook, { subject: "Golpe en el camión", messageId: "<a@exp.test>" });
     await appendMail(outlook, {

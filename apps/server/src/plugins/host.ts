@@ -13,6 +13,9 @@ export type MailEvent = typeof events.$inferSelect;
  */
 export type ServerPlugin = {
   id: string;
+  /** Cómo se llama y para qué sirve, en palabras: se enseña en Configuración. */
+  name?: string;
+  description?: string;
   /** Crea sus tablas si no existen. Se llama en cada arranque. */
   setup?: (db: Db) => Promise<void>;
   routes?: FastifyPluginAsync<RouteOptions>;

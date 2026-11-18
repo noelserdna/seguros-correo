@@ -48,6 +48,21 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
     return { accounts: rows };
   });
 
+  // Qué módulos opcionales tiene esta instalación y cuáles están cargados.
+  app.get("/modules", (request) => {
+    requireSession(request);
+    const active = new Set((context.plugins ?? []).map((plugin) => plugin.id));
+    const all = context.availablePlugins ?? context.plugins ?? [];
+    return {
+      modules: all.map((plugin) => ({
+        id: plugin.id,
+        name: plugin.name ?? plugin.id,
+        description: plugin.description ?? "",
+        active: active.has(plugin.id),
+      })),
+    };
+  });
+
   // Resumen de lo procesado en los buzones que ve el usuario.
   app.get("/processing", async (request) => {
     const { user } = requireSession(request);
