@@ -11,6 +11,7 @@ Estado: validación técnica.
 - Fase 3b, interfaz web de lectura (carpetas, lista, lectura segura, adjuntos, búsqueda, archivo y avisos en vivo): hecha.
 - Fase 4, acciones con reflejo (leído, bandera, mover, borrar y deshacer): hecha.
 - Fase 5, redactar y enviar (borradores, responder, reenviar, adjuntos, Bandeja de salida y copia en Enviados): hecha.
+- Fase 6, acceso con cuenta de Google y de Microsoft 365: escrita y probada contra un proveedor simulado; pendiente de validar contra los proveedores reales.
 
 ## Requisitos
 
@@ -75,6 +76,15 @@ Lo que se hace aquí se ve en Outlook, y al revés.
 - **El original queda marcado** como respondido o reenviado, también en Outlook.
 - **Firma por usuario y buzón,** en texto sin formato.
 - **Lo que manda el editor pasa por el mismo filtro que el correo entrante** antes de salir.
+
+## Buzones de Google y de Microsoft 365
+
+Estos proveedores no admiten (o están retirando) la entrada con contraseña. El buzón se conecta entrando con la cuenta en la página del proveedor; la contraseña nunca pasa por este servidor.
+
+- **Configuración:** `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID` y `MICROSOFT_CLIENT_SECRET` en `.env`. Sin ellos, la opción no aparece. La dirección de vuelta que hay que registrar en el proveedor es `http://127.0.0.1:3000/api/oauth/callback` (o `PUBLIC_URL` + `/api/oauth/callback`).
+- **Permisos que se piden:** en Google, `https://mail.google.com/` (IMAP y SMTP); en Microsoft, `IMAP.AccessAsUser.All`, `SMTP.Send` y `offline_access`.
+- **Los permisos se guardan cifrados** y se renuevan solos antes de caducar. Si el proveedor los retira, el buzón queda en «credenciales caducadas» hasta que un administrador lo vuelva a conectar.
+- **Gmail** guarda por su cuenta la copia de lo enviado, así que aquí no se añade otra; sus carpetas virtuales (Todos, Destacados, Importantes) no se sincronizan.
 
 ## Apuntado para configuración
 

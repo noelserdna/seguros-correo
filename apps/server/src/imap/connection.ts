@@ -9,14 +9,16 @@ export type ImapSettings = Pick<
   "imapHost" | "imapPort" | "imapSecure" | "tlsInsecure" | "username"
 >;
 
-/** Crea (sin conectar) un cliente IMAP para un buzón. */
-export function imapClient(settings: ImapSettings, password: string): ImapFlow {
+type ImapAuth = { user: string; pass: string } | { user: string; accessToken: string };
+
+/** Crea (sin conectar) un cliente IMAP para un buzón, con contraseña o con permiso temporal. */
+export function imapClient(settings: ImapSettings, secret: string | ImapAuth): ImapFlow {
   return new ImapFlow({
     host: settings.imapHost,
     port: settings.imapPort,
     secure: settings.imapSecure,
     tls: { rejectUnauthorized: !settings.tlsInsecure },
-    auth: { user: settings.username, pass: password },
+    auth: typeof secret === "string" ? { user: settings.username, pass: secret } : secret,
     // Con QRESYNC el servidor identifica por uid los cambios que notifica.
     qresync: true,
     logger: false,

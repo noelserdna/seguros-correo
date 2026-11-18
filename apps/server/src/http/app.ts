@@ -11,11 +11,14 @@ import type { SecretBox } from "../crypto/secrets.ts";
 import type { Db } from "../db/client.ts";
 import { auditLog } from "../db/schema.ts";
 import type { Account } from "../imap/connection.ts";
+import type { OAuthAccountInput } from "../accounts/accounts.ts";
+import type { OAuthSettings } from "../oauth/providers.ts";
 import type { RawStore } from "../storage/raw-store.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { contentRoutes } from "./routes/content.ts";
+import { oauthRoutes } from "./routes/oauth.ts";
 import { outboundRoutes } from "./routes/outbound.ts";
 import { mailRoutes } from "./routes/mail.ts";
 
@@ -40,6 +43,10 @@ export type AppDeps = {
   db: Db;
   secrets: SecretBox;
   rawStore: RawStore;
+  /** Acceso con Google y Microsoft 365. Sin él, solo buzones con contraseña. */
+  oauth?: OAuthSettings;
+  /** Solo para pruebas: sustituye la comprobación de entrada al buzón recién conectado. */
+  verifyOAuthConnection?: (input: OAuthAccountInput) => Promise<string[]>;
   /** Marcar la cookie como solo-HTTPS. Activo en producción. */
   cookieSecure?: boolean;
   limiter?: AttemptLimiter;
@@ -144,6 +151,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(contentRoutes, { prefix: "/api", context });
   await app.register(actionRoutes, { prefix: "/api", context });
   await app.register(outboundRoutes, { prefix: "/api", context });
+  await app.register(oauthRoutes, { prefix: "/api", context });
 
   if (deps.webDir && existsSync(deps.webDir)) {
     await app.register(fastifyStatic, { root: deps.webDir, wildcard: false });

@@ -11,6 +11,7 @@ const app = await buildApp({
   db: runtime.db,
   secrets: runtime.secrets,
   rawStore: runtime.rawStore,
+  oauth: runtime.oauth,
   webDir: fileURLToPath(new URL("../../web/dist", import.meta.url)),
   cookieSecure: runtime.config.COOKIE_SECURE,
   onAccountCreated: (account) => sync.start(account),

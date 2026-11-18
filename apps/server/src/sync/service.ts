@@ -22,7 +22,9 @@ export class SyncService {
   }
 
   start(account: Account): void {
-    if (this.#supervisors.has(account.id)) return;
+    // Un buzón que se vuelve a conectar (permiso renovado) arranca de nuevo con lo último.
+    const previous = this.#supervisors.get(account.id);
+    if (previous) void previous.stop();
     const supervisor = new AccountSupervisor(this.#deps, account, {
       onCycle: (result) => {
         const { pending, ...counts } = result;

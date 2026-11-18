@@ -1,4 +1,4 @@
-import { loadConfig, requireMasterKey, type Config } from "./config.ts";
+import { loadConfig, oauthSettings, requireMasterKey, type Config } from "./config.ts";
 import { SecretBox } from "./crypto/secrets.ts";
 import { openDb, runMigrations, type Db } from "./db/client.ts";
 import { RawStore } from "./storage/raw-store.ts";
@@ -17,5 +17,12 @@ export async function openRuntime(): Promise<Runtime> {
   const secrets = new SecretBox(requireMasterKey(config));
   const { db, close } = openDb(config.DATABASE_URL);
   await runMigrations(db);
-  return { db, secrets, config, rawStore: new RawStore(config.DATA_DIR), close };
+  return {
+    db,
+    secrets,
+    config,
+    rawStore: new RawStore(config.DATA_DIR),
+    oauth: oauthSettings(config),
+    close,
+  };
 }

@@ -264,6 +264,11 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ signature }),
     }),
+  oauthProviders: () =>
+    request<{ providers: { id: string; label: string }[] }>("/admin/oauth/providers").then(
+      (data) => data.providers,
+    ),
+  oauthStart: (provider: string) => post<{ url: string }>(`/admin/oauth/${provider}/start`, {}),
   undo: (actionId: string) => post<ActionReply>(`/actions/${actionId}/undo`, {}),
   thread: (id: string) =>
     request<{ messages: ThreadMessage[] }>(`/threads/${id}`).then((data) => data.messages),

@@ -1,7 +1,9 @@
 import nodemailer from "nodemailer";
 import type { SecretBox } from "../crypto/secrets.ts";
 import type { Db } from "../db/client.ts";
-import { accounts, auditLog } from "../db/schema.ts";
+import { and, eq } from "drizzle-orm";
+import { accountAccess, accounts, auditLog } from "../db/schema.ts";
+import type { Provider, TokenSet } from "../oauth/providers.ts";
 import { errorMessage, imapClient, isAuthError, type Account } from "../imap/connection.ts";
 
 export type NewAccount = {
@@ -104,5 +106,96 @@ export async function createAccount(
       target: account.email,
     });
     return account;
+  });
+}
+
+export type OAuthAccountInput = {
+  provider: Provider;
+  email: string;
+  tokens: TokenSet;
+  /** Quien lo conecta: recibe acceso al buzón, porque es el suyo. */
+  userId: string;
+};
+
+/** Comprueba que el permiso recibido sirve para entrar al buzón. Devuelve las capacidades. */
+export async function testOAuthConnection(input: OAuthAccountInput): Promise<string[]> {
+  const { provider, email, tokens } = input;
+  const client = imapClient(
+    {
+      imapHost: provider.imap.host,
+      imapPort: provider.imap.port,
+      imapSecure: provider.imap.secure,
+      tlsInsecure: false,
+      username: email,
+    },
+    { user: email, accessToken: tokens.accessToken },
+  );
+  try {
+    await client.connect();
+    return [...client.capabilities.keys()].sort();
+  } catch (error) {
+    throw new AccountConnectionError(isAuthError(error) ? "auth" : "imap", errorMessage(error));
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
+}
+
+/**
+ * Da de alta un buzón conectado con Google o Microsoft, o renueva sus permisos si ya
+ * existía (volver a conectar un buzón cuyo permiso se retiró).
+ */
+export async function connectOAuthAccount(
+  db: Db,
+  secrets: SecretBox,
+  input: OAuthAccountInput,
+  verify: (input: OAuthAccountInput) => Promise<string[]> = testOAuthConnection,
+): Promise<{ account: Account; created: boolean }> {
+  const { provider, email, tokens, userId } = input;
+  const capabilities = await verify(input);
+  const authType = provider.id === "google" ? "oauth_google" : "oauth_microsoft";
+  const secretEncrypted = secrets.encrypt(JSON.stringify(tokens));
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.email, email), eq(accounts.authType, authType)));
+    let account: Account | undefined;
+    if (existing) {
+      [account] = await tx
+        .update(accounts)
+        .set({ secretEncrypted, capabilities, state: "new", lastError: null })
+        .where(eq(accounts.id, existing.id))
+        .returning();
+    } else {
+      [account] = await tx
+        .insert(accounts)
+        .values({
+          name: email,
+          email,
+          imapHost: provider.imap.host,
+          imapPort: provider.imap.port,
+          imapSecure: provider.imap.secure,
+          smtpHost: provider.smtp.host,
+          smtpPort: provider.smtp.port,
+          smtpSecure: provider.smtp.secure,
+          authType,
+          username: email,
+          secretEncrypted,
+          capabilities,
+          serverSavesSent: provider.savesSent,
+        })
+        .returning();
+    }
+    if (!account) throw new Error("No se pudo conectar el buzón.");
+    await tx.insert(accountAccess).values({ accountId: account.id, userId }).onConflictDoNothing();
+    await tx.insert(auditLog).values({
+      userId,
+      accountId: account.id,
+      action: existing ? "account.reconnected" : "account.created",
+      target: account.email,
+      detail: { provider: provider.id },
+    });
+    return { account, created: !existing };
   });
 }

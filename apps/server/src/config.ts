@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { OAuthSettings } from "./oauth/providers.ts";
 
 const schema = z.object({
   DATABASE_URL: z.string().default("postgres://correo:correo@127.0.0.1:54329/correo"),
@@ -15,6 +16,14 @@ const schema = z.object({
     .default("0")
     .transform((value) => value === "1" || value === "true"),
 
+  /** Dirección con la que se abre la aplicación en el navegador. Por defecto, este equipo. */
+  PUBLIC_URL: z.string().optional(),
+  /** Acceso con cuenta de Google y de Microsoft 365. Sin estos valores, no se ofrece. */
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_CLIENT_ID: z.string().optional(),
+  MICROSOFT_CLIENT_SECRET: z.string().optional(),
+
   // Servidor de correo de pruebas (pnpm dev:up). Solo lo usan las pruebas de integración.
   TEST_DATABASE_URL: z.string().default("postgres://correo:correo@127.0.0.1:54329/correo_test"),
   TEST_IMAP_HOST: z.string().default("127.0.0.1"),
@@ -28,6 +37,25 @@ export type Config = z.infer<typeof schema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return schema.parse(env);
+}
+
+/** Proveedores de acceso configurados y dirección de vuelta tras dar permiso. */
+export function oauthSettings(config: Config): OAuthSettings {
+  const base = (config.PUBLIC_URL ?? `http://127.0.0.1:${config.PORT}`).replace(/\/$/, "");
+  const clients: OAuthSettings["clients"] = {};
+  if (config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET) {
+    clients.google = {
+      clientId: config.GOOGLE_CLIENT_ID,
+      clientSecret: config.GOOGLE_CLIENT_SECRET,
+    };
+  }
+  if (config.MICROSOFT_CLIENT_ID && config.MICROSOFT_CLIENT_SECRET) {
+    clients.microsoft = {
+      clientId: config.MICROSOFT_CLIENT_ID,
+      clientSecret: config.MICROSOFT_CLIENT_SECRET,
+    };
+  }
+  return { redirectUri: `${base}/api/oauth/callback`, clients };
 }
 
 export function requireMasterKey(config: Config): string {

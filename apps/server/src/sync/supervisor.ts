@@ -1,5 +1,6 @@
 import type { ImapFlow } from "imapflow";
-import { imapClientFor, isAuthError, type Account } from "../imap/connection.ts";
+import { resolveAuth } from "../accounts/auth.ts";
+import { imapClient, isAuthError, type Account } from "../imap/connection.ts";
 import { runSyncCycle, type CycleResult, type SyncDeps } from "./cycle.ts";
 import type { SyncOptions } from "./types.ts";
 
@@ -91,14 +92,15 @@ export class AccountSupervisor {
     const { retryBaseMs = 2_000, retryMaxMs = 5 * 60_000 } = this.#options;
     let failures = 0;
     while (!this.#stopped) {
-      const client = imapClientFor(this.#account, this.#deps.secrets);
-      this.#listener = client;
-      const nudge = () => this.nudge();
-      client.on("exists", nudge);
-      client.on("expunge", nudge);
-      client.on("flags", nudge);
-      client.on("error", () => undefined);
+      let client: ReturnType<typeof imapClient> | null = null;
       try {
+        client = imapClient(this.#account, await resolveAuth(this.#deps, this.#account));
+        this.#listener = client;
+        const nudge = () => this.nudge();
+        client.on("exists", nudge);
+        client.on("expunge", nudge);
+        client.on("flags", nudge);
+        client.on("error", () => undefined);
         await client.connect();
         await client.mailboxOpen("INBOX", { readOnly: true });
         failures = 0;
@@ -108,7 +110,7 @@ export class AccountSupervisor {
         if (isAuthError(error)) return;
         failures++;
       } finally {
-        client.close();
+        client?.close();
         this.#listener = null;
       }
       if (this.#stopped) break;

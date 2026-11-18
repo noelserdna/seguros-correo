@@ -156,6 +156,30 @@ function Mailbox({ session }: { session: Session }) {
   );
   const canAct = url.view !== "archive";
 
+  // Vuelta de la página de Google o Microsoft tras conectar un buzón.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("buzon_conectado");
+    const failed = params.get("buzon_error");
+    if (!connected && !failed) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (connected) {
+      showToast({
+        tone: "info",
+        title: `Buzón conectado: ${connected}`,
+        detail: "Estamos trayendo su correo.",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    } else {
+      showToast({
+        tone: "error",
+        title: "No se ha podido conectar el buzón",
+        detail: failed ?? undefined,
+      });
+    }
+  }, [showToast, queryClient]);
+
   const openDraft = useCallback((id: string) => navigate({ composeId: id }), []);
   const closeComposer = useCallback(() => navigate({ composeId: null }), []);
   const compose = useCallback(
@@ -260,7 +284,14 @@ function Mailbox({ session }: { session: Session }) {
       <TopBar user={session.user} accounts={accounts.data} online={online} />
       <div className="relative flex min-h-0 grow">
         <Rail />
-        <FolderPanel accounts={accounts.data ?? []} onCompose={() => compose("new")} />
+        <FolderPanel
+          accounts={accounts.data ?? []}
+          onCompose={() => compose("new")}
+          isAdmin={session.user.role === "admin"}
+          onError={(detail) =>
+            showToast({ tone: "error", title: "No se ha podido conectar el buzón", detail })
+          }
+        />
 
         {url.view === "outbox" && accountId ? (
           <OutboxList

@@ -1,7 +1,7 @@
 import { and, asc, eq, isNull, lte } from "drizzle-orm";
 import type { ImapFlow } from "imapflow";
 import { queueAction } from "../actions/queue.ts";
-import type { SecretBox } from "../crypto/secrets.ts";
+import type { MailAuth } from "../accounts/auth.ts";
 import {
   events,
   folderMessages,
@@ -54,7 +54,7 @@ async function fail(ctx: SyncContext, outbound: Outbound, message: string): Prom
  * anotado, y si el proceso se corta después solo falta dejar la copia en Enviados. La
  * copia tampoco se duplica: antes de guardarla se mira si ya está, por su Message-ID.
  */
-export async function runOutbox(ctx: SyncContext, secrets: SecretBox): Promise<OutboxResult> {
+export async function runOutbox(ctx: SyncContext, auth: MailAuth): Promise<OutboxResult> {
   const { db, client, account, rawStore } = ctx;
   const result: OutboxResult = { sent: 0, failed: 0, drafts: 0 };
   const mine = eq(outboundMessages.accountId, account.id);
@@ -174,7 +174,7 @@ export async function runOutbox(ctx: SyncContext, secrets: SecretBox): Promise<O
       .returning();
     if (!claimed) break;
 
-    const transport = smtpTransportFor(account, secrets);
+    const transport = smtpTransportFor(account, auth);
     try {
       await transport.sendMail(
         mailOptions(account, claimed, await filesOf(claimed.id), rawStore, claimed.sendAfter!),

@@ -4,7 +4,9 @@ import type { Db } from "../db/client.ts";
 import { accounts } from "../db/schema.ts";
 import { runPendingActions } from "../actions/execute.ts";
 import { runOutbox } from "../outbound/outbox.ts";
-import { errorMessage, imapClientFor, isAuthError, type Account } from "../imap/connection.ts";
+import { resolveAuth } from "../accounts/auth.ts";
+import { errorMessage, imapClient, isAuthError, type Account } from "../imap/connection.ts";
+import type { OAuthSettings } from "../oauth/providers.ts";
 import type { RawStore } from "../storage/raw-store.ts";
 import { downloadBodies } from "./bodies.ts";
 import { backfillFolder, syncFolder } from "./folder-sync.ts";
@@ -12,7 +14,7 @@ import { syncFolderList } from "./folders.ts";
 import { markRemoved } from "./removed.ts";
 import { DEFAULT_SYNC_OPTIONS, type SyncContext, type SyncOptions } from "./types.ts";
 
-export type SyncDeps = { db: Db; secrets: SecretBox; rawStore: RawStore };
+export type SyncDeps = { db: Db; secrets: SecretBox; rawStore: RawStore; oauth?: OAuthSettings };
 
 export type CycleResult = {
   /** Acciones de la cola atendidas (hechas o rechazadas). */
@@ -54,11 +56,13 @@ export async function runSyncCycle(
     removed: 0,
     pending: false,
   };
-  const client = imapClientFor(account, deps.secrets);
-  // Sin esto, un corte de red durante el ciclo tumbaría el proceso.
-  client.on("error", () => undefined);
+  let client: ReturnType<typeof imapClient> | null = null;
 
   try {
+    const auth = await resolveAuth(deps, account);
+    client = imapClient(account, auth);
+    // Sin esto, un corte de red durante el ciclo tumbaría el proceso.
+    client.on("error", () => undefined);
     await client.connect();
     const ctx: SyncContext = {
       db: deps.db,
@@ -69,7 +73,7 @@ export async function runSyncCycle(
     };
 
     // Primero lo que ha pedido el usuario: la sincronización que sigue ya ve el resultado.
-    const outbox = await runOutbox(ctx, deps.secrets);
+    const outbox = await runOutbox(ctx, auth);
     result.sent = outbox.sent;
     result.sendFailed = outbox.failed;
     result.drafts = outbox.drafts;
@@ -105,6 +109,6 @@ export async function runSyncCycle(
       .where(eq(accounts.id, account.id));
     throw error;
   } finally {
-    await client.logout().catch(() => undefined);
+    await client?.logout().catch(() => undefined);
   }
 }

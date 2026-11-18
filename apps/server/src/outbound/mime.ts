@@ -1,7 +1,7 @@
 import nodemailer from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer/index.js";
 import type Mail from "nodemailer/lib/mailer/index.js";
-import type { SecretBox } from "../crypto/secrets.ts";
+import type { MailAuth } from "../accounts/auth.ts";
 import type { outboundAttachments, outboundMessages } from "../db/schema.ts";
 import type { Account } from "../imap/connection.ts";
 import type { RawStore } from "../storage/raw-store.ts";
@@ -10,14 +10,17 @@ import { htmlToText } from "./html.ts";
 export type Outbound = typeof outboundMessages.$inferSelect;
 export type OutboundAttachment = typeof outboundAttachments.$inferSelect;
 
-export function smtpTransportFor(account: Account, secrets: SecretBox) {
+export function smtpTransportFor(account: Account, auth: MailAuth) {
   return nodemailer.createTransport({
     host: account.smtpHost,
     port: account.smtpPort,
     secure: account.smtpSecure,
     requireTLS: !account.smtpSecure,
     tls: { rejectUnauthorized: !account.tlsInsecure },
-    auth: { user: account.username, pass: secrets.decrypt(account.secretEncrypted) },
+    auth:
+      "accessToken" in auth
+        ? { type: "OAuth2", user: auth.user, accessToken: auth.accessToken }
+        : auth,
   });
 }
 
