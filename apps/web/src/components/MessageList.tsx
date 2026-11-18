@@ -2,9 +2,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { MessageItem } from "../api.ts";
 import { dateGroup, displayName, formatListDate, isFlagged, isUnread } from "../format.ts";
+import { processingState } from "../processing.ts";
 import { Icon } from "./Icon.tsx";
 
-type Filter = "all" | "unread" | "attachments";
+type Filter = "all" | "unread" | "attachments" | "unprocessed";
 type Row = { kind: "group"; title: string } | { kind: "message"; item: MessageItem };
 
 const GROUP_HEIGHT = 29;
@@ -14,6 +15,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "Todos" },
   { id: "unread", label: "Sin leer" },
   { id: "attachments", label: "Con adjuntos" },
+  { id: "unprocessed", label: "Sin procesar" },
 ];
 
 function MessageRow({
@@ -30,6 +32,7 @@ function MessageRow({
   onSelect: () => void;
 }) {
   const unread = !archived && isUnread(item.flags);
+  const state = processingState(item.processing);
   const weight = unread ? "font-semibold" : "font-normal";
   return (
     <button
@@ -71,8 +74,21 @@ function MessageRow({
               {label}
             </span>
           ))}
-          {item.hasAttachments && (
-            <Icon name="clip" size={14} label="Con adjuntos" className="text-ink-2" />
+          {state.tone === "working" ? (
+            <span title={state.text} className="flex shrink-0">
+              <Icon name="refresh" size={14} label={state.text} className="text-accent" />
+            </span>
+          ) : state.tone === "partial" ? (
+            <span title={state.text} className="flex shrink-0 items-center gap-0.5 text-flag">
+              <Icon name="clip" size={14} label={state.text} />
+              <span aria-hidden className="size-1.5 rounded-full bg-flag" />
+            </span>
+          ) : (
+            item.hasAttachments && (
+              <span title={state.text || "Con adjuntos"} className="flex shrink-0">
+                <Icon name="clip" size={14} label="Con adjuntos" className="text-ink-2" />
+              </span>
+            )
           )}
           {isFlagged(item.flags) && (
             <Icon name="flag" size={14} label="Con bandera" className="text-flag" filled />
@@ -125,7 +141,9 @@ export function MessageList({
           ? isUnread(item.flags)
           : filter === "attachments"
             ? item.hasAttachments
-            : true,
+            : filter === "unprocessed"
+              ? processingState(item.processing).tone !== "ok"
+              : true,
       ),
     [items, filter],
   );
@@ -180,7 +198,7 @@ export function MessageList({
           {subtitle && <span className="text-xs whitespace-nowrap text-ink-2">{subtitle}</span>}
         </div>
         {!archived && (
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {FILTERS.map((option) => (
               <button
                 key={option.id}

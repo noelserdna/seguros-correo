@@ -34,8 +34,24 @@ export type MessageItem = {
   internalDate: string;
   snippet: string | null;
   hasAttachments: boolean | null;
+  processing?: Processing;
   flags: string[];
   removedFromServerAt?: string | null;
+};
+/** Si ya se ha traído el contenido del correo y cuántos adjuntos se han podido leer. */
+export type Processing = {
+  bodyPending: boolean;
+  files: number;
+  read: number;
+  pending: number;
+  noted: number;
+};
+export type ProcessingSummary = {
+  messages: number;
+  bodyPending: number;
+  withFiles: number;
+  incomplete: number;
+  documents: { status: string; documents: number; noted: number }[];
 };
 export type MessagePage = { items: MessageItem[]; nextCursor: string | null };
 
@@ -323,6 +339,7 @@ export const api = {
     post<{ email: string }>("/admin/oauth/complete", params),
   oauthStart: (provider: string) => post<{ url: string }>(`/admin/oauth/${provider}/start`, {}),
   undo: (actionId: string) => post<ActionReply>(`/actions/${actionId}/undo`, {}),
+  processing: () => request<ProcessingSummary>("/processing"),
   attachmentText: (id: string) => request<AttachmentText>(`/attachments/${id}/text`),
   saveAttachmentNote: (id: string, text: string) =>
     request<{ note: AttachmentNote | null }>(`/attachments/${id}/note`, {

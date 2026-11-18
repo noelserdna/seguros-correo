@@ -12,6 +12,7 @@ import {
   folders,
   messages,
 } from "../../db/schema.ts";
+import { processingOf } from "../../mail/processing.ts";
 import { renderEmailHtml, renderEmailText, type InlineImage } from "../../mail/render.ts";
 import { accessibleAccountIds, assertAccess } from "../access.ts";
 import { audit, notFound, requireSession, type RouteOptions } from "../app.ts";
@@ -269,6 +270,7 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
         internalDate: messages.internalDate,
         snippet: messages.snippet,
         hasAttachments: messages.hasAttachments,
+        processing: processingOf,
         removedFromServerAt: messages.removedFromServerAt,
       })
       .from(messages)

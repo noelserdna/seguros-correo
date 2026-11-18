@@ -14,6 +14,7 @@ import {
   users,
 } from "../../db/schema.ts";
 import { addFact } from "../../facts/facts.ts";
+import { processingOf } from "../../mail/processing.ts";
 import { assertAccess } from "../access.ts";
 import { audit, notFound, requireSession, type RouteOptions } from "../app.ts";
 import { publicAccount } from "./admin.ts";
@@ -45,6 +46,45 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
       .where(eq(accountAccess.userId, user.id))
       .orderBy(accounts.email);
     return { accounts: rows };
+  });
+
+  // Resumen de lo procesado en los buzones que ve el usuario.
+  app.get("/processing", async (request) => {
+    const { user } = requireSession(request);
+    const result = await db.execute<{
+      messages: number;
+      bodyPending: number;
+      withFiles: number;
+      incomplete: number;
+    }>(sql`
+      select count(*)::int as messages,
+             (count(*) filter (where m.raw_sha256 is null))::int as "bodyPending",
+             (count(*) filter (where f.files > 0))::int as "withFiles",
+             (count(*) filter (where f.files > f.read))::int as incomplete
+        from messages m
+        join account_access aa on aa.account_id = m.account_id and aa.user_id = ${user.id}
+        cross join lateral (
+          select count(a.id) as files,
+                 count(a.id) filter (where d.status in ('ok', 'empty')) as read
+            from attachments a
+            left join document_texts d on d.content_sha256 = a.content_sha256
+           where a.message_id = m.id and not a.inline) f
+    `);
+    // Cada fichero cuenta una vez aunque venga en varios correos.
+    const documents = await db.execute<{ status: string; documents: number; noted: number }>(sql`
+      select coalesce(d.status, 'pending') as status,
+             count(*)::int as documents,
+             (count(*) filter (where exists (
+                select 1 from document_notes n where n.content_sha256 = docs.sha)))::int as noted
+        from (select distinct a.content_sha256 as sha
+                from attachments a
+                join messages m on m.id = a.message_id
+                join account_access aa on aa.account_id = m.account_id and aa.user_id = ${user.id}
+               where not a.inline) docs
+        left join document_texts d on d.content_sha256 = docs.sha
+       group by 1
+    `);
+    return { ...result.rows[0]!, documents: documents.rows };
   });
 
   app.get("/accounts/:id/folders", async (request) => {
@@ -93,6 +133,7 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         internalDate: messages.internalDate,
         snippet: messages.snippet,
         hasAttachments: messages.hasAttachments,
+        processing: processingOf,
         flags: folderMessages.flags,
         uid: folderMessages.uid,
       })

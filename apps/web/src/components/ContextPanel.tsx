@@ -4,6 +4,7 @@ import { api, type MessageDetail } from "../api.ts";
 import { displayName, formatListDate } from "../format.ts";
 import { locationName, uniqueByHeader } from "../folders.ts";
 import { plugins } from "../plugins/index.ts";
+import { processingState } from "../processing.ts";
 import { navigate } from "../url-state.ts";
 import { Icon } from "./Icon.tsx";
 
@@ -267,6 +268,16 @@ export function ContextPanel({
   });
 
   const files = (message?.attachments ?? []).filter((file) => !file.inline);
+  const status = processingState({
+    bodyPending: false,
+    files: files.length,
+    read: files.filter((file) => file.textStatus === "ok" || file.textStatus === "empty").length,
+    pending: files.filter((file) => !file.textStatus || file.textStatus === "pending").length,
+    noted: files.filter(
+      (file) =>
+        file.note && !["ok", "empty", "pending", null].includes(file.textStatus as string | null),
+    ).length,
+  });
   const facts = useQuery({
     queryKey: ["message", message?.id, "facts"],
     queryFn: () => api.facts(message!.id),
@@ -355,6 +366,35 @@ export function ContextPanel({
                 <span className="truncate text-xs text-ink-2">{entry.snippet ?? " "}</span>
               </button>
             ))}
+          </Section>
+
+          <Section title="Procesado">
+            <dl className="m-0 flex flex-col gap-1.5 text-xs">
+              <Row label="Contenido">
+                {message.bodyPending
+                  ? "Aún no se ha traído del servidor de correo"
+                  : message.bodyClean === null
+                    ? "Traído, pendiente de limpiar"
+                    : "Leído"}
+              </Row>
+              <Row label="Adjuntos">
+                {files.length === 0 ? (
+                  "No tiene"
+                ) : (
+                  <span
+                    className={
+                      status.tone === "partial"
+                        ? "font-semibold text-flag"
+                        : status.tone === "working"
+                          ? "text-accent-strong"
+                          : ""
+                    }
+                  >
+                    {status.text}
+                  </span>
+                )}
+              </Row>
+            </dl>
           </Section>
 
           <Section title="Lo que aporta este correo">

@@ -233,6 +233,16 @@ describe("texto limpio y accesible", () => {
     });
     expect(saved.statusCode).toBe(200);
 
+    // El resumen global: dos correos con adjunto sin procesar, que son un solo fichero, anotado.
+    const summary = (await call("GET", "/api/processing")).json<{
+      messages: number;
+      withFiles: number;
+      incomplete: number;
+      documents: { status: string; documents: number; noted: number }[];
+    }>();
+    expect(summary).toMatchObject({ messages: 2, withFiles: 2, incomplete: 2 });
+    expect(summary.documents).toEqual([{ status: "needs_ocr", documents: 1, noted: 1 }]);
+
     // La nota va con el fichero: aparece también en el otro correo que lo lleva.
     const second = await bySubject("Las mismas fotos, reenviadas");
     const other = (await call("GET", `/api/messages/${second.id}`)).json<Detail>();
