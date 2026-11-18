@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState, type ReactNode } from "react";
 import { api, type MessageDetail } from "../api.ts";
 import { displayName, formatListDate } from "../format.ts";
 import { locationName, uniqueByHeader } from "../folders.ts";
@@ -61,16 +61,112 @@ function LongText({ text }: { text: string }) {
 
 const TEXT_STATUS: Record<string, string> = {
   pending: "Leyendo su texto…",
-  needs_ocr: "Es una imagen o un escaneado: aún no se ha reconocido su texto.",
+  needs_ocr: "Sin procesar: es una imagen o un escaneado y aún no se reconoce su texto.",
   empty: "No contiene texto.",
-  unsupported: "No se sabe leer el texto de este tipo de fichero.",
-  failed: "No se ha podido leer su texto.",
+  unsupported: "Sin procesar: no se sabe leer el texto de este tipo de fichero.",
+  failed: "Sin procesar: no se ha podido leer su texto.",
 };
 
-/** Un adjunto y el texto que se ha leído de él, página a página al desplegarlo. */
+const IMAGE = /^image\/(jpeg|png|gif|webp)$/;
+
+/** Campo «Qué contiene»: lo escribe quien ha visto el adjunto; un modelo podrá proponerlo. */
+function AttachmentNote({ file }: { file: MessageDetail["attachments"][number] }) {
+  const queryClient = useQueryClient();
+  const saved = file.note?.text ?? "";
+  const [text, setText] = useState(saved);
+  const [editing, setEditing] = useState(false);
+  useEffect(() => setText(saved), [saved]);
+  const save = useMutation({
+    mutationFn: () => api.saveAttachmentNote(file.id, text.trim()),
+    onSuccess: () => {
+      setEditing(false);
+      void queryClient.invalidateQueries({ queryKey: ["message"] });
+    },
+  });
+
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-line-soft pt-1.5">
+      {file.autoNote && (
+        <p className="m-0 leading-normal break-words whitespace-pre-wrap text-ink-2">
+          <span className="font-semibold">Descripción automática, sin revisar:</span>{" "}
+          {file.autoNote.text}
+        </p>
+      )}
+      {editing ? (
+        <>
+          <label htmlFor={`nota-${file.id}`} className="font-semibold">
+            Qué contiene
+          </label>
+          <textarea
+            id={`nota-${file.id}`}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            rows={3}
+            maxLength={4000}
+            autoFocus
+            placeholder="Por ejemplo: foto del lateral derecho, golpe en la puerta trasera."
+            className="resize-y rounded-md border border-line-strong bg-panel px-2 py-1.5 font-sans text-xs leading-normal text-ink outline-none focus:border-accent"
+          />
+          {save.isError && (
+            <span role="alert" className="text-bad-ink">
+              No se ha podido guardar. Vuelve a intentarlo.
+            </span>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => save.mutate()}
+              disabled={save.isPending || text.trim() === saved}
+              className="h-7 rounded-md border-0 bg-accent px-2.5 font-semibold text-white disabled:opacity-60"
+            >
+              Guardar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setText(saved);
+                setEditing(false);
+              }}
+              className="h-7 rounded-md border border-line-strong bg-panel px-2.5 text-ink"
+            >
+              Cancelar
+            </button>
+          </div>
+        </>
+      ) : file.note ? (
+        <>
+          <p className="m-0 leading-normal break-words whitespace-pre-wrap">{file.note.text}</p>
+          <span className="flex items-baseline gap-2 text-[11px] text-ink-2">
+            <span className="min-w-0 grow truncate">
+              Anotado por {file.note.author ?? "alguien que ya no está"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="shrink-0 border-0 bg-transparent p-0 text-xs font-semibold text-accent hover:text-accent-strong"
+            >
+              Cambiar
+            </button>
+          </span>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="self-start border-0 bg-transparent p-0 font-semibold text-accent hover:text-accent-strong"
+        >
+          Anotar qué contiene
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Un adjunto: se abre desde aquí, se ve su texto si se ha podido leer y se puede anotar. */
 function AttachmentContext({ file }: { file: MessageDetail["attachments"][number] }) {
   const [open, setOpen] = useState(false);
   const status = file.textStatus ?? "pending";
+  const image = IMAGE.test(file.contentType);
   const text = useQuery({
     queryKey: ["attachment-text", file.id],
     queryFn: () => api.attachmentText(file.id),
@@ -92,7 +188,34 @@ function AttachmentContext({ file }: { file: MessageDetail["attachments"][number
             {open ? "Ocultar" : "Ver texto"}
           </button>
         )}
+        {image ? (
+          <a
+            href={`/api/attachments/${file.id}?inline=1`}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 font-semibold text-accent no-underline hover:text-accent-strong"
+          >
+            Abrir
+          </a>
+        ) : (
+          <a
+            href={`/api/attachments/${file.id}`}
+            className="shrink-0 font-semibold text-accent no-underline hover:text-accent-strong"
+          >
+            Descargar
+          </a>
+        )}
       </div>
+      {image && (
+        <a href={`/api/attachments/${file.id}?inline=1`} target="_blank" rel="noreferrer">
+          <img
+            src={`/api/attachments/${file.id}?inline=1`}
+            alt={file.note?.text ?? file.filename ?? "Imagen adjunta"}
+            loading="lazy"
+            className="block max-h-40 w-full rounded border border-line bg-ground object-contain"
+          />
+        </a>
+      )}
       <span className="text-ink-2">
         {status === "ok"
           ? `${(file.textChars ?? 0).toLocaleString("es-ES")} caracteres leídos`
@@ -114,6 +237,7 @@ function AttachmentContext({ file }: { file: MessageDetail["attachments"][number
       {open && text.data && text.data.pagesNeedingOcr > 0 && text.data.pages.length <= 1 && (
         <span className="text-ink-2">Hay páginas escaneadas sin texto todavía.</span>
       )}
+      <AttachmentNote file={file} />
     </div>
   );
 }
@@ -254,7 +378,7 @@ export function ContextPanel({
           </Section>
 
           {files.length > 0 && (
-            <Section title="Texto de los adjuntos">
+            <Section title="Adjuntos y su contenido">
               {files.map((file) => (
                 <AttachmentContext key={file.id} file={file} />
               ))}

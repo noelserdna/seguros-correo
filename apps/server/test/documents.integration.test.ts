@@ -191,6 +191,71 @@ describe("texto limpio y accesible", () => {
     expect(notices).toHaveLength(3);
   });
 
+  it("un adjunto sin procesar se puede ver y anotar, y lo anotado se busca", async () => {
+    const foto = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 9, 8, 7, 6, 5]);
+    await appendMail(outlook, {
+      subject: "Fotos del golpe",
+      text: "Van las fotos.",
+      attachments: [{ filename: "lateral.jpg", content: foto, contentType: "image/jpeg" }],
+    });
+    await appendMail(outlook, {
+      subject: "Las mismas fotos, reenviadas",
+      text: "Te las paso.",
+      attachments: [{ filename: "IMG_0042.jpg", content: foto, contentType: "image/jpeg" }],
+    });
+    await settle();
+
+    type Detail = {
+      message: { attachments: Attachments };
+    };
+    type Attachments = {
+      attachments: {
+        id: string;
+        textStatus: string;
+        note: { text: string; author: string } | null;
+        autoNote: unknown;
+      }[];
+    }["attachments"];
+    const first = await bySubject("Fotos del golpe");
+    const before = (await call("GET", `/api/messages/${first.id}`)).json<Detail>();
+    const file = before.message.attachments[0]!;
+    expect(file).toMatchObject({ textStatus: "needs_ocr", note: null, autoNote: null });
+
+    // Como foto se enseña tal cual; como descarga, siempre es un fichero opaco.
+    const shown = await call("GET", `/api/attachments/${file.id}?inline=1`);
+    expect(shown.headers["content-type"]).toBe("image/jpeg");
+    expect(shown.headers["content-disposition"]).toBe("inline");
+    const download = await call("GET", `/api/attachments/${file.id}`);
+    expect(download.headers["content-type"]).toBe("application/octet-stream");
+
+    const saved = await call("PUT", `/api/attachments/${file.id}/note`, {
+      text: "Lateral derecho del camión, abolladura en la puerta trasera.",
+    });
+    expect(saved.statusCode).toBe(200);
+
+    // La nota va con el fichero: aparece también en el otro correo que lo lleva.
+    const second = await bySubject("Las mismas fotos, reenviadas");
+    const other = (await call("GET", `/api/messages/${second.id}`)).json<Detail>();
+    expect(other.message.attachments[0]?.note).toMatchObject({
+      text: "Lateral derecho del camión, abolladura en la puerta trasera.",
+      author: marta.name,
+    });
+
+    type Hit = { subject: string; attachmentHit: { page: number; headline: string } | null };
+    const search = await call("GET", "/api/search?q=abolladura");
+    const hits = search.json<{ items: Hit[] }>().items;
+    expect(hits.map((hit) => hit.subject).sort()).toEqual([
+      "Fotos del golpe",
+      "Las mismas fotos, reenviadas",
+    ]);
+    expect(hits[0]?.attachmentHit?.page).toBe(0);
+
+    // Vacía, la nota se borra.
+    await call("PUT", `/api/attachments/${file.id}/note`, { text: "" });
+    const after = (await call("GET", `/api/messages/${first.id}`)).json<Detail>();
+    expect(after.message.attachments[0]?.note).toBeNull();
+  });
+
   it("el mismo adjunto en dos correos se lee y se guarda una sola vez", async () => {
     await appendMail(outlook, {
       subject: "Primera vez",

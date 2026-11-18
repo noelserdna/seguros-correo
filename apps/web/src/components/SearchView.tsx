@@ -229,8 +229,10 @@ export function SearchView({
                     <Icon name="clip" size={12} className="mr-1 inline align-[-1px]" />
                     <span className="font-semibold text-ink">
                       {hit.attachmentHit.filename ?? "Adjunto"}
-                      {hit.attachmentHit.pages > 1 &&
-                        ` · ${hit.attachmentHit.label ?? `pág. ${hit.attachmentHit.page}`}`}
+                      {hit.attachmentHit.page === 0
+                        ? " · lo anotado"
+                        : hit.attachmentHit.pages > 1 &&
+                          ` · ${hit.attachmentHit.label ?? `pág. ${hit.attachmentHit.page}`}`}
                       :
                     </span>{" "}
                     <Highlighted

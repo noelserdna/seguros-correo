@@ -48,7 +48,12 @@ export type Attachment = {
   /** Si se ha podido leer su texto. `null`: aún no se ha intentado. */
   textStatus: "pending" | "ok" | "needs_ocr" | "empty" | "unsupported" | "failed" | null;
   textChars: number | null;
+  /** Qué contiene, anotado por una persona. */
+  note: AttachmentNote | null;
+  /** Qué contiene, descrito por un modelo. Aún no se genera. */
+  autoNote: AttachmentNote | null;
 };
+export type AttachmentNote = { text: string; author: string | null; updatedAt: string };
 export type MessageDetail = {
   id: string;
   accountId: string;
@@ -319,6 +324,11 @@ export const api = {
   oauthStart: (provider: string) => post<{ url: string }>(`/admin/oauth/${provider}/start`, {}),
   undo: (actionId: string) => post<ActionReply>(`/actions/${actionId}/undo`, {}),
   attachmentText: (id: string) => request<AttachmentText>(`/attachments/${id}/text`),
+  saveAttachmentNote: (id: string, text: string) =>
+    request<{ note: AttachmentNote | null }>(`/attachments/${id}/note`, {
+      method: "PUT",
+      body: JSON.stringify({ text }),
+    }),
   facts: (id: string) =>
     request<{ facts: MessageFact[] }>(`/messages/${id}/facts`).then((data) => data.facts),
   thread: (id: string) =>

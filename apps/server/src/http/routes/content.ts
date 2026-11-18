@@ -4,6 +4,7 @@ import { simpleParser, type ParsedMail } from "mailparser";
 import { z } from "zod";
 import {
   attachments,
+  documentNotes,
   documentPages,
   documentTexts,
   events,
@@ -16,6 +17,26 @@ import { accessibleAccountIds, assertAccess } from "../access.ts";
 import { audit, notFound, requireSession, type RouteOptions } from "../app.ts";
 
 const idParams = z.object({ id: z.uuid() });
+const downloadQuery = z.object({ inline: z.enum(["0", "1"]).default("0") });
+const noteBody = z.object({ text: z.string().trim().max(4000) });
+
+/**
+ * Imágenes que el navegador puede enseñar sin riesgo. Se decide por los primeros bytes
+ * del fichero, no por el tipo que declara el correo. Nada de SVG ni HTML.
+ */
+export function rasterImageType(content: Buffer): string | null {
+  if (content.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return "image/jpeg";
+  if (content.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+    return "image/png";
+  const head = content.subarray(0, 6).toString("latin1");
+  if (head === "GIF87a" || head === "GIF89a") return "image/gif";
+  if (
+    content.subarray(0, 4).toString("latin1") === "RIFF" &&
+    content.subarray(8, 12).toString("latin1") === "WEBP"
+  )
+    return "image/webp";
+  return null;
+}
 const htmlQuery = z.object({ images: z.enum(["0", "1"]).default("0") });
 const pageQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -79,10 +100,12 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
     };
   });
 
-  // Descarga de un adjunto. Siempre como fichero: el navegador nunca lo interpreta.
+  // Descarga de un adjunto. Como fichero: el navegador no lo interpreta. La única
+  // excepción son las fotos (`?inline=1`), que se enseñan tal cual para poder verlas.
   app.get("/attachments/:id", async (request, reply) => {
     const { user } = requireSession(request);
     const { id } = idParams.parse(request.params);
+    const { inline } = downloadQuery.parse(request.query);
     const [file] = await db.select().from(attachments).where(eq(attachments.id, id));
     if (!file) throw notFound();
     const message = await loadMessage(user.id, file.messageId);
@@ -99,6 +122,16 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
       detail: { messageId: message.id, filename: file.filename },
     });
     const filename = (file.filename ?? "adjunto").replace(/[\r\n"\\/]/g, "_");
+    const imageType = inline === "1" ? rasterImageType(part.content) : null;
+    if (imageType) {
+      return reply
+        .header("content-type", imageType)
+        .header("content-disposition", "inline")
+        .header("x-content-type-options", "nosniff")
+        .header("content-security-policy", "sandbox; default-src 'none'")
+        .header("cache-control", "private, max-age=3600")
+        .send(part.content);
+    }
     return reply
       .header("content-type", "application/octet-stream")
       .header(
@@ -141,6 +174,51 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
       error: document?.error ?? null,
       pages,
     };
+  });
+
+  // Qué contiene un adjunto, escrito por una persona. Vacío borra la nota.
+  app.put("/attachments/:id/note", async (request) => {
+    const { user } = requireSession(request);
+    const { id } = idParams.parse(request.params);
+    const { text } = noteBody.parse(request.body);
+    const [file] = await db.select().from(attachments).where(eq(attachments.id, id));
+    if (!file) throw notFound();
+    const message = await loadMessage(user.id, file.messageId);
+
+    await db.transaction(async (tx) => {
+      if (text) {
+        await tx
+          .insert(documentNotes)
+          .values({ contentSha256: file.contentSha256, source: "user", text, userId: user.id })
+          .onConflictDoUpdate({
+            target: [documentNotes.contentSha256, documentNotes.source],
+            set: { text, userId: user.id, updatedAt: new Date() },
+          });
+      } else {
+        await tx
+          .delete(documentNotes)
+          .where(
+            and(
+              eq(documentNotes.contentSha256, file.contentSha256),
+              eq(documentNotes.source, "user"),
+            ),
+          );
+      }
+      await tx.insert(events).values({
+        accountId: message.accountId,
+        type: "document.described",
+        messageId: message.id,
+        payload: { attachmentId: file.id, contentSha256: file.contentSha256, source: "user" },
+      });
+    });
+    await audit(db, {
+      userId: user.id,
+      accountId: message.accountId,
+      action: text ? "attachment.described" : "attachment.note_removed",
+      target: file.id,
+      detail: { messageId: message.id, filename: file.filename },
+    });
+    return { note: text ? { text, author: user.name, updatedAt: new Date() } : null };
   });
 
   // Los mensajes de una conversación, del más antiguo al más reciente.
@@ -235,7 +313,11 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
       sql`(m.search @@ q or exists (
             select 1 from attachments a
               join document_pages p on p.content_sha256 = a.content_sha256
-             where a.message_id = m.id and p.search @@ q))`,
+             where a.message_id = m.id and p.search @@ q)
+           or exists (
+            select 1 from attachments a
+              join document_notes n on n.content_sha256 = a.content_sha256
+             where a.message_id = m.id and n.search @@ q))`,
       // Fuera las versiones viejas de borradores: solo cuenta lo que sigue en una carpeta
       // o estuvo alguna vez en una que no fuera Borradores.
       sql`exists (select 1 from folder_messages fm join folders f on f.id = fm.folder_id
@@ -303,7 +385,7 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
                where fm.message_id = m.id and fm.gone_at is null and f.gone_at is null
                order by fm.created_at
                limit 1) as "locationUse",
-             (select json_build_object(
+             coalesce((select json_build_object(
                        'filename', a.filename,
                        'page', p.page,
                        'label', p.label,
@@ -315,7 +397,20 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
                 join document_texts d on d.content_sha256 = a.content_sha256
                where a.message_id = m.id and p.search @@ q
                order by p.page
-               limit 1) as "attachmentHit"
+               limit 1),
+              -- O en lo que alguien ha anotado sobre el adjunto.
+              (select json_build_object(
+                       'filename', a.filename,
+                       'page', 0,
+                       'label', 'descripción',
+                       'pages', 1,
+                       'headline', ts_headline('es_sin_acentos', n.text, q,
+                         ${`MaxWords=24, MinWords=10, MaxFragments=1, StartSel=${MARK_START}, StopSel=${MARK_END}`}))
+                from attachments a
+                join document_notes n on n.content_sha256 = a.content_sha256
+               where a.message_id = m.id and n.search @@ q
+               order by n.source desc
+               limit 1)) as "attachmentHit"
         from messages m,
              websearch_to_tsquery('es_sin_acentos', ${query.q}) q
        where m.account_id in (${sql.join(

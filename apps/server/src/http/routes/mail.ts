@@ -1,15 +1,17 @@
-import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import {
   accountAccess,
   accounts,
   attachments,
+  documentNotes,
   documentTexts,
   folderMessages,
   folders,
   messages,
   outboundMessages,
+  users,
 } from "../../db/schema.ts";
 import { addFact } from "../../facts/facts.ts";
 import { assertAccess } from "../access.ts";
@@ -147,11 +149,44 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         /** Si se ha podido leer su texto: `ok`, `needs_ocr`, `unsupported`… */
         textStatus: documentTexts.status,
         textChars: documentTexts.chars,
+        contentSha256: attachments.contentSha256,
       })
       .from(attachments)
       .leftJoin(documentTexts, eq(documentTexts.contentSha256, attachments.contentSha256))
       .where(eq(attachments.messageId, id))
       .orderBy(attachments.position);
+
+    // Lo que se ha anotado de cada adjunto: a mano (`note`) o por un modelo (`autoNote`).
+    const shas = [...new Set(files.map((file) => file.contentSha256))];
+    const notes = shas.length
+      ? await db
+          .select({
+            contentSha256: documentNotes.contentSha256,
+            source: documentNotes.source,
+            text: documentNotes.text,
+            author: users.name,
+            extractor: documentNotes.extractor,
+            updatedAt: documentNotes.updatedAt,
+          })
+          .from(documentNotes)
+          .leftJoin(users, eq(users.id, documentNotes.userId))
+          .where(inArray(documentNotes.contentSha256, shas))
+      : [];
+    const noteOf = (sha: string, source: "user" | "model") => {
+      const note = notes.find((entry) => entry.contentSha256 === sha && entry.source === source);
+      return note
+        ? {
+            text: note.text,
+            author: source === "user" ? note.author : note.extractor,
+            updatedAt: note.updatedAt,
+          }
+        : null;
+    };
+    const attachmentList = files.map(({ contentSha256, ...file }) => ({
+      ...file,
+      note: noteOf(contentSha256, "user"),
+      autoNote: noteOf(contentSha256, "model"),
+    }));
 
     const [draft] = message.messageIdHeader
       ? await db
@@ -212,7 +247,7 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         /** Ya no está en el buzón del servidor, pero se conserva en nuestro archivo. */
         removedFromServerAt: message.removedFromServerAt,
         locations,
-        attachments: files,
+        attachments: attachmentList,
         /** Es un borrador escrito aquí por este usuario: se puede seguir editando. */
         draftId: draft?.id ?? null,
       },

@@ -258,6 +258,7 @@ export const attachments = pgTable(
 );
 
 export type EventType =
+  | "document.described"
   | "message.received"
   | "message.moved"
   | "message.flagsChanged"
@@ -382,6 +383,28 @@ export const documentPages = pgTable(
     chars: integer("chars").notNull(),
   },
   (table) => [primaryKey({ columns: [table.contentSha256, table.page] })],
+);
+
+/**
+ * Qué contiene un documento, contado en palabras: lo que escribe una persona al verlo
+ * («foto del lateral derecho, golpe en la puerta») o lo que describa un modelo de una
+ * foto o de un plano. Va por contenido, como el texto: vale para todos los correos que
+ * lleven ese mismo fichero. La nota de una persona y la de un modelo conviven.
+ */
+export const documentNotes = pgTable(
+  "document_notes",
+  {
+    contentSha256: text("content_sha256").notNull(),
+    source: text("source").$type<"user" | "model">().notNull(),
+    text: text("text").notNull(),
+    /** Quién la escribió, si fue una persona. */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Qué la generó, si fue un modelo, y con qué seguridad. */
+    extractor: text("extractor"),
+    confidence: real("confidence"),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.contentSha256, table.source] })],
 );
 
 export type AddressRole = "from" | "to" | "cc" | "bcc" | "reply_to";
