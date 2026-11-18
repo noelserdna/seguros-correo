@@ -97,6 +97,21 @@ Cómo se rellenan los datos de negocio está por decidir, y es donde entrará la
 
 El texto libre no se vectoriza. Si llega a hacer falta, se puede hacer en el mismo Postgres.
 
+## Texto limpio para el contexto
+
+Para que una persona o un modelo pueda trabajar con un expediente hace falta su texto, limpio y localizable. Esta capa no usa IA.
+
+- **Cuerpo de cada correo sin lo que arrastra** (`body_clean`): se quitan el historial citado (Gmail, Outlook, Apple Mail, Thunderbird, y las cabeceras «El … escribió:» o «-----Mensaje original-----»), la firma y el aviso legal. Es conservador: ante la duda deja texto de más, y un reenvío no se recorta. El texto completo se conserva aparte.
+- **Texto de los adjuntos, por páginas** (`document_texts`, `document_pages`): PDF con capa de texto, Word (.docx), Excel (.xlsx, una página por hoja), correos adjuntos (.eml, .msg), HTML y texto. Cada documento se identifica por la huella de su contenido, así que el mismo fichero en varios correos se lee una sola vez.
+- **Lo que no tiene texto queda marcado:** las imágenes y los PDF escaneados, como «pendiente de reconocimiento»; en un PDF mixto, página a página. El reconocimiento de texto (OCR) es el siguiente paso; los manuscritos, el último.
+- **Se lee aparte de la sincronización,** en un proceso propio: el correo se puede abrir en cuanto llega y el texto de sus adjuntos aparece unos segundos después. Al terminar cada documento se emite `document.extracted`.
+- **La búsqueda encuentra dentro de los adjuntos** y dice en cuál y en qué página.
+- **Cada expediente sabe cuánto contexto reúne:** correos y adjuntos que cuentan, tamaño aproximado y cuántos adjuntos no tienen texto.
+
+`pnpm reprocesar --todos --documentos` rehace todo desde los originales.
+
+Librerías, todas de licencia permisiva: `unpdf` (MIT), `mammoth` (BSD-2), `exceljs` (MIT), `@kenjiuno/msgreader` (Apache-2.0) y `node-html-parser` (MIT).
+
 ## Plugins
 
 Un plugin añade funciones sin tocar el núcleo. El de demostración (`expedientes`) existe solo para probar los enganches; no es el módulo de siniestros.

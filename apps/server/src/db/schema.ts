@@ -179,6 +179,8 @@ export const messages = pgTable(
     enrichedAt: timestamptz("enriched_at"),
     rawSha256: text("raw_sha256"),
     bodyText: text("body_text"),
+    /** Lo que este correo aporta de nuevo: sin el historial citado, la firma ni el aviso legal. */
+    bodyClean: text("body_clean"),
     snippet: text("snippet"),
     hasAttachments: boolean("has_attachments"),
     /**
@@ -263,6 +265,7 @@ export type EventType =
   | "action.queued"
   | "action.failed"
   | "message.enriched"
+  | "document.extracted"
   | "account.changed"
   | "outbound.changed"
   | "outbound.sent"
@@ -329,6 +332,56 @@ export const mailActions = pgTable(
     finishedAt: timestamptz("finished_at"),
   },
   (table) => [index("mail_actions_queue").on(table.accountId, table.state, table.createdAt)],
+);
+
+export type DocumentStatus =
+  | "pending" // aún no se ha intentado
+  | "ok" // tiene texto
+  | "needs_ocr" // es una imagen o un escaneado: falta el reconocimiento de texto
+  | "empty" // se ha leído bien y no contiene texto
+  | "unsupported" // tipo de fichero que no se sabe leer
+  | "failed"; // se intentó y dio error
+
+/**
+ * Texto de cada documento adjunto. Se identifica por la huella de su contenido, así que
+ * el mismo fichero recibido en varios correos se procesa y se guarda una sola vez.
+ */
+export const documentTexts = pgTable("document_texts", {
+  contentSha256: text("content_sha256").primaryKey(),
+  filename: text("filename"),
+  contentType: text("content_type").notNull(),
+  size: integer("size").notNull(),
+  status: text("status").$type<DocumentStatus>().notNull().default("pending"),
+  /** Cómo se obtuvo: `pdf_texto`, `docx`, `xlsx`, `msg`, `eml`, `texto`… */
+  method: text("method"),
+  pages: integer("pages").notNull().default(0),
+  chars: integer("chars").notNull().default(0),
+  /** Páginas sin texto que necesitan reconocimiento (escaneadas). */
+  pagesNeedingOcr: integer("pages_needing_ocr").notNull().default(0),
+  error: text("error"),
+  createdAt: createdAt(),
+  extractedAt: timestamptz("extracted_at"),
+});
+
+/** El texto, página a página, para poder citar «página 3 del adjunto X». */
+export const documentPages = pgTable(
+  "document_pages",
+  {
+    contentSha256: text("content_sha256")
+      .notNull()
+      .references(() => documentTexts.contentSha256, { onDelete: "cascade" }),
+    /** Página del PDF, hoja del Excel; 1 en el resto. */
+    page: integer("page").notNull(),
+    /** Nombre de la hoja u otra etiqueta de la página, si la hay. */
+    label: text("label"),
+    text: text("text").notNull(),
+    /** `capa_texto` cuando viene del propio fichero; el motor usado cuando es reconocimiento. */
+    method: text("method").notNull(),
+    /** Entre 0 y 1; solo cuando el método da una estimación. */
+    confidence: real("confidence"),
+    chars: integer("chars").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.contentSha256, table.page] })],
 );
 
 export type AddressRole = "from" | "to" | "cc" | "bcc" | "reply_to";

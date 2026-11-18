@@ -4,6 +4,7 @@ import type { Db } from "../../db/client.ts";
 import { events, messages } from "../../db/schema.ts";
 import { accessibleAccountIds, assertAccess } from "../../http/access.ts";
 import { audit, HttpError, notFound, requireAdmin, requireSession } from "../../http/app.ts";
+import { approxTokens } from "../../mail/clean.ts";
 import type { MailEvent, ServerPlugin } from "../host.ts";
 
 /**
@@ -403,6 +404,52 @@ export const demoPlugin: ServerPlugin = {
       const row = await loadCase(user.id, id);
       const accountIds = await accessibleAccountIds(db, user.id);
       return { case: row, messages: await messagesOfCase(db, id, accountIds) };
+    });
+
+    // Cuánto ocupa el contexto del expediente: lo que leería quien resuma o responda sobre él.
+    app.get("/cases/:id/context", async (request) => {
+      const { user } = requireSession(request);
+      const { id } = idParams.parse(request.params);
+      await loadCase(user.id, id);
+      const accountIds = await accessibleAccountIds(db, user.id);
+      const mail = await db.execute<{ messages: number; excluded: number; chars: number }>(sql`
+        select count(*) filter (where not cm.excluded)::int as messages,
+               count(*) filter (where cm.excluded)::int as excluded,
+               coalesce(sum(length(coalesce(m.body_clean, m.body_text, '')))
+                        filter (where not cm.excluded), 0)::int as chars
+          from demo_case_messages cm join messages m on m.id = cm.message_id
+         where cm.case_id = ${id} and m.account_id in (${uuids(accountIds)})`);
+      // Cada documento cuenta una vez aunque venga adjunto en varios correos.
+      const files = await db.execute<{ status: string; documents: number; chars: number }>(sql`
+        select coalesce(d.status, 'pending') as status,
+               count(*)::int as documents, coalesce(sum(d.chars), 0)::int as chars
+          from (select distinct a.content_sha256
+                  from demo_case_messages cm
+                  join messages m on m.id = cm.message_id
+                  join attachments a on a.message_id = m.id and not a.inline
+                 where cm.case_id = ${id} and not cm.excluded
+                   and m.account_id in (${uuids(accountIds)})) docs
+          left join document_texts d on d.content_sha256 = docs.content_sha256
+         group by 1`);
+      const byStatus = Object.fromEntries(files.rows.map((row) => [row.status, row.documents]));
+      const documentChars = files.rows.reduce((sum, row) => sum + row.chars, 0);
+      const chars = (mail.rows[0]?.chars ?? 0) + documentChars;
+      return {
+        messages: mail.rows[0]?.messages ?? 0,
+        excluded: mail.rows[0]?.excluded ?? 0,
+        messageChars: mail.rows[0]?.chars ?? 0,
+        documents: files.rows.reduce((sum, row) => sum + row.documents, 0),
+        documentChars,
+        /** Documentos de los que aún no hay texto, por motivo. */
+        withoutText: {
+          needsOcr: byStatus.needs_ocr ?? 0,
+          unsupported: byStatus.unsupported ?? 0,
+          failed: byStatus.failed ?? 0,
+          pending: byStatus.pending ?? 0,
+        },
+        chars,
+        approxTokens: approxTokens(chars),
+      };
     });
 
     // Expedientes de un correo, con sus demás correos: para la barra y el panel de contexto.

@@ -5,6 +5,7 @@ import {
   accountAccess,
   accounts,
   attachments,
+  documentTexts,
   folderMessages,
   folders,
   messages,
@@ -143,8 +144,12 @@ export const mailRoutes: FastifyPluginAsync<RouteOptions> = async (app, { contex
         contentType: attachments.contentType,
         size: attachments.size,
         inline: attachments.inline,
+        /** Si se ha podido leer su texto: `ok`, `needs_ocr`, `unsupported`… */
+        textStatus: documentTexts.status,
+        textChars: documentTexts.chars,
       })
       .from(attachments)
+      .leftJoin(documentTexts, eq(documentTexts.contentSha256, attachments.contentSha256))
       .where(eq(attachments.messageId, id))
       .orderBy(attachments.position);
 

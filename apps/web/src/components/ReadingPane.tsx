@@ -271,6 +271,13 @@ function Toolbar({
   );
 }
 
+/** Por qué no se puede buscar dentro de un adjunto, cuando es el caso. */
+const NO_TEXT: Record<string, string> = {
+  needs_ocr: "Es una imagen o un documento escaneado: todavía no se ha reconocido su texto.",
+  unsupported: "No se sabe leer el texto de este tipo de fichero.",
+  failed: "No se ha podido leer el texto de este fichero.",
+};
+
 function AttachmentChip({ file }: { file: Attachment }) {
   const kind = fileKind(file.filename, file.contentType);
   return (
@@ -290,6 +297,9 @@ function AttachmentChip({ file }: { file: Attachment }) {
         </span>
         <span className="text-[11px] text-ink-2">
           {kind} · {formatSize(file.size)}
+          {NO_TEXT[file.textStatus ?? ""] && (
+            <span title={NO_TEXT[file.textStatus ?? ""]}> · sin texto</span>
+          )}
         </span>
       </span>
     </a>

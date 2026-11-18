@@ -3,10 +3,12 @@
  * Sirve cuando cambia lo que se extrae: no hace falta volver a descargar nada.
  *
  *   pnpm reprocesar            Solo los que aún no se han procesado
- *   pnpm reprocesar --todos    Todos
+ *   pnpm reprocesar --todos         Todos los correos
+ *   pnpm reprocesar --documentos    Además, vuelve a leer el texto de todos los adjuntos
  */
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
-import { accounts, messages } from "../src/db/schema.ts";
+import { and, count, eq, isNotNull, isNull } from "drizzle-orm";
+import { accounts, documentTexts, messages } from "../src/db/schema.ts";
+import { ExtractionWorker } from "../src/documents/worker.ts";
 import { enrichMessage } from "../src/mail/enrich.ts";
 import { openRuntime } from "../src/runtime.ts";
 
@@ -35,7 +37,27 @@ try {
       console.error(`No se pudo procesar ${row.messageId}:`, error);
     }
   }
-  console.log(`Procesados: ${done}. Con error: ${failed}. Total revisado: ${pending.length}.`);
+  console.log(
+    `Correos procesados: ${done}. Con error: ${failed}. Total revisado: ${pending.length}.`,
+  );
+
+  if (process.argv.includes("--documentos")) {
+    await runtime.db.update(documentTexts).set({ status: "pending" });
+  }
+  const worker = new ExtractionWorker(runtime.db, runtime.rawStore);
+  let documents = 0;
+  for (;;) {
+    const handled = await worker.drain(50);
+    if (handled === 0) break;
+    documents += handled;
+  }
+  const summary = await runtime.db
+    .select({ status: documentTexts.status, total: count() })
+    .from(documentTexts)
+    .groupBy(documentTexts.status);
+  console.log(
+    `Documentos leídos ahora: ${documents}. Estado: ${summary.map((row) => `${row.status}=${row.total}`).join(", ") || "ninguno"}.`,
+  );
 } finally {
   await runtime.close();
 }

@@ -2,7 +2,15 @@ import { and, asc, desc, eq, gt, isNotNull, isNull, lt, max, or, sql } from "dri
 import type { FastifyPluginAsync } from "fastify";
 import { simpleParser, type ParsedMail } from "mailparser";
 import { z } from "zod";
-import { attachments, events, folderMessages, folders, messages } from "../../db/schema.ts";
+import {
+  attachments,
+  documentPages,
+  documentTexts,
+  events,
+  folderMessages,
+  folders,
+  messages,
+} from "../../db/schema.ts";
 import { renderEmailHtml, renderEmailText, type InlineImage } from "../../mail/render.ts";
 import { accessibleAccountIds, assertAccess } from "../access.ts";
 import { audit, notFound, requireSession, type RouteOptions } from "../app.ts";
@@ -102,6 +110,39 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
       .send(part.content);
   });
 
+  // El texto que se ha podido leer de un adjunto, página a página.
+  app.get("/attachments/:id/text", async (request) => {
+    const { user } = requireSession(request);
+    const { id } = idParams.parse(request.params);
+    const [file] = await db.select().from(attachments).where(eq(attachments.id, id));
+    if (!file) throw notFound();
+    await loadMessage(user.id, file.messageId);
+    const [document] = await db
+      .select()
+      .from(documentTexts)
+      .where(eq(documentTexts.contentSha256, file.contentSha256));
+    const pages = document
+      ? await db
+          .select({
+            page: documentPages.page,
+            label: documentPages.label,
+            text: documentPages.text,
+            method: documentPages.method,
+            confidence: documentPages.confidence,
+          })
+          .from(documentPages)
+          .where(eq(documentPages.contentSha256, file.contentSha256))
+          .orderBy(asc(documentPages.page))
+      : [];
+    return {
+      status: document?.status ?? "pending",
+      method: document?.method ?? null,
+      pagesNeedingOcr: document?.pagesNeedingOcr ?? 0,
+      error: document?.error ?? null,
+      pages,
+    };
+  });
+
   // Los mensajes de una conversación, del más antiguo al más reciente.
   app.get("/threads/:id", async (request) => {
     const { user } = requireSession(request);
@@ -190,7 +231,11 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
     if (accountIds.length === 0) return { items: [], truncated: false };
 
     const filters = [
-      sql`m.search @@ q`,
+      // En el correo o en el texto de alguno de sus adjuntos.
+      sql`(m.search @@ q or exists (
+            select 1 from attachments a
+              join document_pages p on p.content_sha256 = a.content_sha256
+             where a.message_id = m.id and p.search @@ q))`,
       // Fuera las versiones viejas de borradores: solo cuenta lo que sigue en una carpeta
       // o estuvo alguna vez en una que no fuera Borradores.
       sql`exists (select 1 from folder_messages fm join folders f on f.id = fm.folder_id
@@ -226,6 +271,14 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
       headline: string;
       location: string | null;
       locationUse: string | null;
+      /** La coincidencia está en un adjunto: cuál, en qué página y el fragmento. */
+      attachmentHit: {
+        filename: string | null;
+        page: number;
+        label: string | null;
+        pages: number;
+        headline: string;
+      } | null;
     }>(sql`
       select m.id,
              m.account_id as "accountId",
@@ -249,7 +302,20 @@ export const contentRoutes: FastifyPluginAsync<RouteOptions> = async (app, { con
                 join folders f on f.id = fm.folder_id
                where fm.message_id = m.id and fm.gone_at is null and f.gone_at is null
                order by fm.created_at
-               limit 1) as "locationUse"
+               limit 1) as "locationUse",
+             (select json_build_object(
+                       'filename', a.filename,
+                       'page', p.page,
+                       'label', p.label,
+                       'pages', d.pages,
+                       'headline', ts_headline('es_sin_acentos', left(p.text, 30000), q,
+                         ${`MaxWords=24, MinWords=10, MaxFragments=1, StartSel=${MARK_START}, StopSel=${MARK_END}`}))
+                from attachments a
+                join document_pages p on p.content_sha256 = a.content_sha256
+                join document_texts d on d.content_sha256 = a.content_sha256
+               where a.message_id = m.id and p.search @@ q
+               order by p.page
+               limit 1) as "attachmentHit"
         from messages m,
              websearch_to_tsquery('es_sin_acentos', ${query.q}) q
        where m.account_id in (${sql.join(

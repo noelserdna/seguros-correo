@@ -45,6 +45,8 @@ export type Attachment = {
   contentType: string;
   size: number;
   inline: boolean;
+  /** Si se ha podido leer su texto. `null`: aún no se ha intentado. */
+  textStatus: "pending" | "ok" | "needs_ocr" | "empty" | "unsupported" | "failed" | null;
 };
 export type MessageDetail = {
   id: string;
@@ -151,6 +153,14 @@ export type SearchHit = {
   headline: string;
   location: string | null;
   locationUse: string | null;
+  /** La coincidencia está dentro de un adjunto. */
+  attachmentHit: {
+    filename: string | null;
+    page: number;
+    label: string | null;
+    pages: number;
+    headline: string;
+  } | null;
 };
 export type SearchResult = {
   items: SearchHit[];

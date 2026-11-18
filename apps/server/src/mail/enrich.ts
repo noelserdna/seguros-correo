@@ -10,7 +10,9 @@ import {
   type Address,
   type AddressRole,
 } from "../db/schema.ts";
+import { queueDocuments } from "../documents/worker.ts";
 import type { RawStore } from "../storage/raw-store.ts";
+import { cleanBody } from "./clean.ts";
 
 const SNIPPET_LENGTH = 200;
 const MAX_HEADER_VALUE = 2000;
@@ -129,28 +131,46 @@ export async function enrichMessage(
   const parsed = await simpleParser(rawStore.open(input.rawSha256));
   const data = extractStructured(parsed, input.accountEmail);
   const { addresses, ...columns } = data;
+  const bodyClean = cleanBody({
+    html: parsed.html,
+    text: parsed.text,
+    subject: parsed.subject,
+  }).text;
+  const parts = parsed.attachments.map((part, position) => ({
+    position,
+    filename: part.filename ?? null,
+    contentType: part.contentType,
+    size: part.size,
+    contentId: part.cid ?? null,
+    inline: part.related === true,
+    contentSha256: createHash("sha256").update(part.content).digest("hex"),
+  }));
 
   await db.transaction(async (tx) => {
     await tx
       .update(messages)
-      .set({ ...columns, rawSha256: input.rawSha256, enrichedAt: new Date() })
+      .set({ ...columns, bodyClean, rawSha256: input.rawSha256, enrichedAt: new Date() })
       .where(eq(messages.id, input.messageId));
 
     await tx.delete(attachments).where(eq(attachments.messageId, input.messageId));
-    if (parsed.attachments.length > 0) {
-      await tx.insert(attachments).values(
-        parsed.attachments.map((part, position) => ({
-          messageId: input.messageId,
-          position,
-          filename: part.filename ?? null,
-          contentType: part.contentType,
-          size: part.size,
-          contentId: part.cid ?? null,
-          inline: part.related === true,
-          contentSha256: createHash("sha256").update(part.content).digest("hex"),
-        })),
-      );
+    if (parts.length > 0) {
+      await tx
+        .insert(attachments)
+        .values(parts.map((part) => ({ ...part, messageId: input.messageId })));
     }
+    // Los adjuntos de verdad (no las imágenes incrustadas en el texto) quedan en cola
+    // para leerles el texto.
+    await queueDocuments(
+      tx,
+      parts
+        .filter((part) => !part.inline)
+        .map(({ contentSha256, filename, contentType, size }) => ({
+          contentSha256,
+          filename,
+          contentType,
+          size,
+        })),
+    );
 
     await tx.delete(messageAddresses).where(eq(messageAddresses.messageId, input.messageId));
     if (addresses.length > 0) {

@@ -50,6 +50,13 @@
       "when": 1794998595998,
       "tag": "0006_datos_estructurados",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795002800613,
+      "tag": "0007_texto_documentos",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 /** Servicio: API HTTP y sincronización en vivo de todos los buzones dados de alta. */
 import { fileURLToPath } from "node:url";
+import { ExtractionWorker } from "./documents/worker.ts";
 import { buildApp } from "./http/app.ts";
 import { demoPlugin } from "./plugins/demo/index.ts";
 import { PluginHost } from "./plugins/host.ts";
@@ -13,6 +14,9 @@ const plugins = [demoPlugin];
 const pluginHost = new PluginHost(runtime.db, plugins);
 await pluginHost.setup();
 pluginHost.start();
+
+const documents = new ExtractionWorker(runtime.db, runtime.rawStore);
+documents.start();
 
 const app = await buildApp({
   plugins,
@@ -41,6 +45,7 @@ const shutdown = () => {
   // seguiría sincronizando por detrás junto al nuevo.
   setTimeout(() => process.exit(0), 5000).unref();
   pluginHost.stop();
+  documents.stop();
   void app
     .close()
     .then(() => sync.stopAll())

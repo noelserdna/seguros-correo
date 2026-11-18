@@ -227,6 +227,42 @@ function MessageLine({
   );
 }
 
+type CaseContext = {
+  messages: number;
+  excluded: number;
+  documents: number;
+  approxTokens: number;
+  withoutText: { needsOcr: number; unsupported: number; failed: number; pending: number };
+};
+
+/** Cuánto contexto reúne el expediente: lo que leería quien lo resuma o responda sobre él. */
+function ContextMeter({ caseId }: { caseId: string }) {
+  const context = useQuery({
+    queryKey: [...KEY, "context", caseId],
+    queryFn: () => apiGet<CaseContext>(`${BASE}/cases/${caseId}/context`),
+  });
+  if (!context.data) return null;
+  const { messages, excluded, documents, approxTokens, withoutText } = context.data;
+  const missing = withoutText.needsOcr + withoutText.unsupported + withoutText.failed;
+  const parts = [
+    messages === 1 ? "1 correo" : `${messages} correos`,
+    documents === 1 ? "1 adjunto" : `${documents} adjuntos`,
+    `unas ${approxTokens.toLocaleString("es-ES")} unidades de texto`,
+  ];
+  return (
+    <p className="m-0 text-xs leading-normal text-ink-2">
+      Contexto: {parts.join(" · ")}.
+      {excluded > 0 &&
+        ` ${excluded === 1 ? "1 correo excluido" : `${excluded} correos excluidos`}.`}
+      {missing > 0 &&
+        ` ${missing === 1 ? "1 adjunto sin texto" : `${missing} adjuntos sin texto`}${
+          withoutText.needsOcr > 0 ? " (imágenes o escaneados)" : ""
+        }.`}
+      {withoutText.pending > 0 && " Leyendo adjuntos…"}
+    </p>
+  );
+}
+
 /** Desplegable con la aseguradora del expediente, tomada del catálogo de Configuración. */
 function InsurerSelect({ item }: { item: Case }) {
   const queryClient = useQueryClient();
@@ -548,6 +584,7 @@ export const demoPlugin: WebPlugin = {
                 {open && (
                   <div className="flex flex-col gap-1.5 bg-ground px-3 py-2.5">
                     <InsurerSelect item={item} />
+                    <ContextMeter caseId={item.id} />
                     {(detail.data?.messages ?? []).map((entry) => (
                       <MessageLine
                         key={entry.id}
@@ -651,6 +688,7 @@ export const demoPlugin: WebPlugin = {
               {item.number} · {item.title}
             </span>
             <InsurerSelect item={item} />
+            <ContextMeter caseId={item.id} />
             {messages.map((entry) => (
               <MessageLine
                 key={entry.id}

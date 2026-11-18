@@ -221,7 +221,24 @@ export function SearchView({
                 )}
               </span>
               <span className="truncate text-xs text-ink-2">
-                <Highlighted text={hit.headline} start={marks.start} end={marks.end} />
+                {hit.attachmentHit ? (
+                  <>
+                    <Icon name="clip" size={12} className="mr-1 inline align-[-1px]" />
+                    <span className="font-semibold text-ink">
+                      {hit.attachmentHit.filename ?? "Adjunto"}
+                      {hit.attachmentHit.pages > 1 &&
+                        ` · ${hit.attachmentHit.label ?? `pág. ${hit.attachmentHit.page}`}`}
+                      :
+                    </span>{" "}
+                    <Highlighted
+                      text={hit.attachmentHit.headline}
+                      start={marks.start}
+                      end={marks.end}
+                    />
+                  </>
+                ) : (
+                  <Highlighted text={hit.headline} start={marks.start} end={marks.end} />
+                )}
               </span>
               {compact && (
                 <span className="flex text-xs text-ink-2">
