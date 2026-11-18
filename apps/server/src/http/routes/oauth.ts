@@ -11,7 +11,7 @@ import {
   providerFor,
   type ProviderId,
 } from "../../oauth/providers.ts";
-import { HttpError, requireAdmin, requireSession, type RouteOptions } from "../app.ts";
+import { HttpError, requireAdmin, type RouteOptions } from "../app.ts";
 
 const STATE_TTL_MS = 10 * 60_000;
 const providerParams = z.object({ provider: z.enum(["google", "microsoft"]) });
@@ -61,32 +61,41 @@ export const oauthRoutes: FastifyPluginAsync<RouteOptions> = async (app, { conte
     return { url: authorizationUrl(oauth, provider, state, pkce.challenge) };
   });
 
-  // El navegador vuelve aquí desde la página del proveedor.
+  // El navegador vuelve aquí desde la página del proveedor. Llega sin sesión: la cookie
+  // es estricta y no viaja en una navegación que empieza en otro sitio. Por eso aquí solo
+  // se devuelve a nuestra página, y es ella la que completa la conexión, ya con sesión.
   app.get("/oauth/callback", async (request, reply) => {
-    const back = (params: Record<string, string>) =>
-      reply.redirect(`/?${new URLSearchParams(params).toString()}`);
-    const { user } = requireSession(request);
     const query = callbackQuery.parse(request.query);
-    const entry = query.state ? pending.get(query.state) : undefined;
-    if (query.state) pending.delete(query.state);
+    const params = new URLSearchParams();
+    if (query.state) params.set("oauth_state", query.state);
+    if (query.code) params.set("oauth_code", query.code);
+    if (query.error) params.set("oauth_error", query.error);
+    return reply.redirect(`/?${params.toString()}`);
+  });
+
+  app.post("/admin/oauth/complete", async (request) => {
+    const { user } = requireAdmin(request);
+    const body = callbackQuery.parse(request.body);
+    const entry = body.state ? pending.get(body.state) : undefined;
+    if (body.state) pending.delete(body.state);
+    const refuse = (message: string) => new HttpError(409, "oauth_failed", message);
 
     // El «state» ata la vuelta a quien la empezó: sin él, otra página podría colar un buzón ajeno.
     if (!entry || entry.expiresAt < Date.now() || entry.userId !== user.id || !oauth) {
-      return back({ buzon_error: "La petición ha caducado. Vuelve a pulsar «Conectar»." });
+      throw refuse("La petición ha caducado. Vuelve a pulsar «Conectar».");
     }
-    if (query.error || !query.code) {
-      return back({
-        buzon_error:
-          query.error === "access_denied"
-            ? "No se ha dado el permiso, así que el buzón no se ha conectado."
-            : "El proveedor no ha completado la conexión.",
-      });
+    if (body.error || !body.code) {
+      throw refuse(
+        body.error === "access_denied"
+          ? "No se ha dado el permiso, así que el buzón no se ha conectado."
+          : "El proveedor no ha completado la conexión.",
+      );
     }
     try {
       const { tokens, email } = await exchangeCode(
         oauth,
         entry.provider,
-        query.code,
+        body.code,
         entry.verifier,
       );
       const { account } = await connectOAuthAccount(
@@ -96,10 +105,10 @@ export const oauthRoutes: FastifyPluginAsync<RouteOptions> = async (app, { conte
         context.verifyOAuthConnection,
       );
       context.onAccountCreated?.(account);
-      return back({ buzon_conectado: account.email });
+      return { email: account.email };
     } catch (error) {
       if (error instanceof OAuthError || error instanceof AccountConnectionError) {
-        return back({ buzon_error: error.message });
+        throw refuse(error.message);
       }
       throw error;
     }

@@ -160,24 +160,33 @@ function Mailbox({ session }: { session: Session }) {
   const queryClient = useQueryClient();
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const connected = params.get("buzon_conectado");
-    const failed = params.get("buzon_error");
-    if (!connected && !failed) return;
+    const state = params.get("oauth_state");
+    const code = params.get("oauth_code");
+    const error = params.get("oauth_error");
+    if (!state && !error) return;
+    // El código es de un solo uso: se quita de la dirección antes de canjearlo.
     window.history.replaceState(null, "", window.location.pathname);
-    if (connected) {
-      showToast({
-        tone: "info",
-        title: `Buzón conectado: ${connected}`,
-        detail: "Estamos trayendo su correo.",
-      });
-      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    } else {
-      showToast({
-        tone: "error",
-        title: "No se ha podido conectar el buzón",
-        detail: failed ?? undefined,
-      });
-    }
+    api
+      .oauthComplete({
+        state: state ?? undefined,
+        code: code ?? undefined,
+        error: error ?? undefined,
+      })
+      .then(({ email }) => {
+        showToast({
+          tone: "info",
+          title: `Buzón conectado: ${email}`,
+          detail: "Estamos trayendo su correo.",
+        });
+        void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      })
+      .catch((failure: unknown) =>
+        showToast({
+          tone: "error",
+          title: "No se ha podido conectar el buzón",
+          detail: failure instanceof ApiError ? failure.message : undefined,
+        }),
+      );
   }, [showToast, queryClient]);
 
   const openDraft = useCallback((id: string) => navigate({ composeId: id }), []);

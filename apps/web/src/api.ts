@@ -268,6 +268,8 @@ export const api = {
     request<{ providers: { id: string; label: string }[] }>("/admin/oauth/providers").then(
       (data) => data.providers,
     ),
+  oauthComplete: (params: { state?: string; code?: string; error?: string }) =>
+    post<{ email: string }>("/admin/oauth/complete", params),
   oauthStart: (provider: string) => post<{ url: string }>(`/admin/oauth/${provider}/start`, {}),
   undo: (actionId: string) => post<ActionReply>(`/actions/${actionId}/undo`, {}),
   thread: (id: string) =>

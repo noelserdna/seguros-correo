@@ -24,6 +24,7 @@ let app: FastifyInstance;
 let provider: Server;
 let oauth: OAuthSettings;
 let admin: User;
+let second: User;
 let started: Account[];
 /** Lo que el proveedor simulado ha recibido y lo que debe contestar. */
 let requests: URLSearchParams[];
@@ -53,14 +54,26 @@ const start = (session: Login, id = "google") =>
     headers: { cookie: session.cookie, [CSRF_HEADER]: session.csrf },
   });
 
-const callback = (session: Login, query: Record<string, string>) =>
-  app.inject({
+/** La vuelta del proveedor: primero a nuestra página (sin sesión) y de ahí a completar. */
+async function callback(session: Login, query: Record<string, string>) {
+  const hop = await app.inject({
     method: "GET",
     url: `/api/oauth/callback?${new URLSearchParams(query).toString()}`,
-    headers: { cookie: session.cookie },
   });
-
-const landing = (location: unknown) => new URL(String(location), "http://x").searchParams;
+  expect(hop.statusCode).toBe(302);
+  const params = new URL(String(hop.headers.location), "http://x").searchParams;
+  const done = await app.inject({
+    method: "POST",
+    url: "/api/admin/oauth/complete",
+    headers: { cookie: session.cookie, [CSRF_HEADER]: session.csrf },
+    payload: {
+      state: params.get("oauth_state") ?? undefined,
+      code: params.get("oauth_code") ?? undefined,
+      error: params.get("oauth_error") ?? undefined,
+    },
+  });
+  return done.json<{ email?: string; message?: string }>();
+}
 
 beforeAll(async () => {
   env = await openTestEnv();
@@ -113,6 +126,12 @@ beforeEach(async () => {
     role: "admin",
   });
   await createUser(env.db, { email: "marta@c.test", name: "Marta", password: PASSWORD });
+  second = await createUser(env.db, {
+    email: "otro-admin@c.test",
+    name: "Otro",
+    password: PASSWORD,
+    role: "admin",
+  });
 });
 afterEach(async () => {
   await app.close();
@@ -142,10 +161,7 @@ describe("conectar un buzón", () => {
     const state = url.searchParams.get("state")!;
 
     const done = await callback(session, { state, code: "codigo-de-un-uso" });
-    expect(done.statusCode).toBe(302);
-    expect(landing(done.headers.location).get("buzon_conectado")).toBe(
-      "siniestros@correduria.test",
-    );
+    expect(done.email).toBe("siniestros@correduria.test");
 
     // Al proveedor le llegó el código con la prueba de que quien canjea es quien pidió.
     expect(requests[0]?.get("code")).toBe("codigo-de-un-uso");
@@ -171,7 +187,7 @@ describe("conectar un buzón", () => {
 
     // El código de vuelta no vale dos veces.
     const again = await callback(session, { state, code: "codigo-de-un-uso" });
-    expect(landing(again.headers.location).get("buzon_error")).toContain("caducado");
+    expect(again.message).toContain("caducado");
     expect(await env.db.select().from(accounts)).toHaveLength(1);
   });
 
@@ -181,16 +197,14 @@ describe("conectar un buzón", () => {
       "state",
     )!;
 
-    const other = await callback(await login("marta@c.test"), { state, code: "x" });
-    expect(landing(other.headers.location).get("buzon_error")).toContain("caducado");
+    const other = await callback(await login(second.email), { state, code: "x" });
+    expect(other.message).toContain("caducado");
 
-    const second = new URL((await start(session)).json<{ url: string }>().url).searchParams.get(
+    const next = new URL((await start(session)).json<{ url: string }>().url).searchParams.get(
       "state",
     )!;
-    const denied = await callback(session, { state: second, error: "access_denied" });
-    expect(landing(denied.headers.location).get("buzon_error")).toContain(
-      "No se ha dado el permiso",
-    );
+    const denied = await callback(session, { state: next, error: "access_denied" });
+    expect(denied.message).toContain("No se ha dado el permiso");
     expect(await env.db.select().from(accounts)).toEqual([]);
     expect(requests).toEqual([]);
   });
