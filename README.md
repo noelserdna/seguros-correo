@@ -84,6 +84,7 @@ Estos proveedores no admiten (o están retirando) la entrada con contraseña. El
 - **Configuración:** `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID` y `MICROSOFT_CLIENT_SECRET` en `.env`. Sin ellos, la opción no aparece. La dirección de vuelta que hay que registrar en el proveedor es `http://127.0.0.1:3000/api/oauth/callback` (o `PUBLIC_URL` + `/api/oauth/callback`).
 - **Permisos que se piden:** en Google, `https://mail.google.com/` (IMAP y SMTP); en Microsoft, `IMAP.AccessAsUser.All`, `SMTP.Send` y `offline_access`.
 - **Los permisos se guardan cifrados** y se renuevan solos antes de caducar. Si el proveedor los retira, el buzón queda en «credenciales caducadas» hasta que un administrador lo vuelva a conectar.
+- **Microsoft 365, comprobado contra una organización real:** la lectura por IMAP funciona con el permiso tal cual. El envío por SMTP viene **desactivado de serie** en las organizaciones nuevas (error `535 5.7.139`): un administrador tiene que activar «SMTP autenticado» en cada buzón, o habrá que enviar por la API de Microsoft Graph. Exchange no ofrece CONDSTORE ni SPECIAL-USE, y enseña por IMAP carpetas que no son de correo (calendario, contactos, tareas), que aquí se ocultan.
 - **Gmail** guarda por su cuenta la copia de lo enviado, así que aquí no se añade otra; sus carpetas virtuales (Todos, Destacados, Importantes) no se sincronizan.
 
 ## Apuntado para configuración

@@ -5,6 +5,24 @@ import type { Folder, SyncContext } from "./types.ts";
 
 /** Carpetas virtuales de Gmail: repiten correos que ya están en otras carpetas. */
 const VIRTUAL = new Set(["\\all", "\\flagged", "\\important"]);
+/**
+ * Exchange enseña por IMAP carpetas que no son de correo (calendario, contactos, tareas…).
+ * Solo se apartan en buzones de Microsoft: en otro servidor, «Notas» puede ser una carpeta real.
+ */
+const EXCHANGE_NOT_MAIL = new Set([
+  "calendar",
+  "calendario",
+  "contacts",
+  "contactos",
+  "journal",
+  "diario",
+  "notes",
+  "notas",
+  "tasks",
+  "tareas",
+  "outbox",
+  "bandeja de salida",
+]);
 const NOT_SELECTABLE = new Set(["\\noselect", "\\nonexistent"]);
 
 const ORDER = ["inbox", "sent", "drafts", "archive", "trash", "junk"];
@@ -24,11 +42,13 @@ export async function syncFolderList({ db, client, account }: SyncContext): Prom
     const virtual =
       VIRTUAL.has((entry.specialUse ?? "").toLowerCase()) ||
       flags.some((flag) => VIRTUAL.has(flag));
+    const notMail =
+      account.authType === "oauth_microsoft" && EXCHANGE_NOT_MAIL.has(entry.path.toLowerCase());
     const values = {
       delimiter: entry.delimiter || "/",
       specialUse: detectSpecialUse(entry),
       subscribed: entry.subscribed ?? true,
-      syncEnabled: selectable && !virtual,
+      syncEnabled: selectable && !virtual && !notMail,
       goneAt: null,
     };
     await db

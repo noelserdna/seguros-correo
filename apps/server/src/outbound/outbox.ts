@@ -13,6 +13,15 @@ import { errorMessage } from "../imap/connection.ts";
 import type { SyncContext } from "../sync/types.ts";
 import { buildRaw, mailOptions, smtpTransportFor, type Outbound } from "./mime.ts";
 
+/** Motivo de un envío rechazado, en palabras. Los casos conocidos llevan qué hacer. */
+export function sendFailureText(detail: string): string {
+  // Microsoft 365 trae desactivado de serie el envío por SMTP en las organizaciones nuevas.
+  if (detail.includes("5.7.139") && /SmtpClientAuthentication is disabled/i.test(detail)) {
+    return "Microsoft 365 tiene desactivado el envío por SMTP para este buzón o para toda la organización. Un administrador debe activar «SMTP autenticado» en el buzón; después, abre este correo y vuelve a enviarlo.";
+  }
+  return `El servidor de salida no lo ha aceptado: ${detail}`;
+}
+
 export type OutboxResult = { sent: number; failed: number; drafts: number };
 
 /** Posiciones en una carpeta de los correos con esa cabecera Message-ID. */
@@ -180,7 +189,7 @@ export async function runOutbox(ctx: SyncContext, auth: MailAuth): Promise<Outbo
         mailOptions(account, claimed, await filesOf(claimed.id), rawStore, claimed.sendAfter!),
       );
     } catch (error) {
-      await fail(ctx, claimed, `El servidor de salida no lo ha aceptado: ${errorMessage(error)}`);
+      await fail(ctx, claimed, sendFailureText(errorMessage(error)));
       result.failed++;
       continue;
     } finally {
