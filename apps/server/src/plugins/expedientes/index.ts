@@ -350,6 +350,13 @@ async function onEvent(event: MailEvent, db: Db): Promise<void> {
     return;
   const [message] = await db.select().from(messages).where(eq(messages.id, event.messageId));
   if (!message) return;
+  // Un borrador (lo que se está escribiendo, guardado en Borradores) todavía no es un correo
+  // del caso: entrará cuando se envíe. Si no, la respuesta aparecería dos veces en la historia.
+  const where = await db.execute<{ drafts: boolean }>(sql`
+    select coalesce(bool_and(f.special_use = 'drafts'), false) as drafts
+      from folder_messages fm join folders f on f.id = fm.folder_id
+     where fm.message_id = ${message.id} and fm.gone_at is null`);
+  if (where.rows[0]?.drafts) return;
 
   // Por conversación: entra en todos los expedientes que ya tengan un correo de su hilo.
   const byThread = await db.execute<{ caseId: string }>(sql`

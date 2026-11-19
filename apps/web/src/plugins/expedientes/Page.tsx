@@ -10,6 +10,7 @@ import { apiGet, apiPost, apiPut, ApiError } from "../../api.ts";
 import { Icon } from "../../components/Icon.tsx";
 import { ReadingPane } from "../../components/ReadingPane.tsx";
 import { Field, settingsButton, settingsField } from "../../components/settings.tsx";
+import { composeFromPage } from "../../compose.ts";
 import { displayName, formatListDate } from "../../format.ts";
 import { navigate, useUrlState } from "../../url-state.ts";
 // Se usa al pintar, no al cargar: la referencia circular con el índice no molesta.
@@ -495,7 +496,7 @@ function DataDrawer({ item, onClose }: { item: CaseSummary; onClose: () => void 
   const insurers = useInsurers();
   const types = useQuery({
     queryKey: [...KEY, "case-types"],
-    queryFn: () => apiGet<{ types: { id: string; name: string }[] }>(`${BASE}/case-types`),
+    queryFn: () => apiGet<{ caseTypes: { id: string; name: string }[] }>(`${BASE}/case-types`),
   });
   const people = useQuery({
     queryKey: ["plugins", "tramitacion", "people-of", item.accountId],
@@ -607,7 +608,7 @@ function DataDrawer({ item, onClose }: { item: CaseSummary; onClose: () => void 
                 className={settingsField}
               >
                 <option value="">Sin tipo</option>
-                {types.data?.types.map((entry) => (
+                {types.data?.caseTypes.map((entry) => (
                   <option key={entry.id} value={entry.id}>
                     {entry.name}
                   </option>
@@ -783,6 +784,7 @@ function CaseView({ caseId, messageId }: { caseId: string; messageId: string | n
                 messageId={messageId}
                 folderId={null}
                 onSelect={(id) => openExpediente(item.id, id)}
+                onCompose={(kind, source) => void composeFromPage(kind, source)}
               />
             </div>
           </div>

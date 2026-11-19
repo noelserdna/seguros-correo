@@ -285,6 +285,16 @@ describe("módulo de expedientes", () => {
     await appendMail(outlook, { from: LUIS, subject: `Peritación ${opened.number.toLowerCase()}` });
     await appendMail(outlook, { from: LUIS, subject: "Publicidad EXP-1999-0000" });
     await appendMail(outlook, { from: LUIS, subject: "Sin relación" });
+    // Un borrador de la conversación (lo que se está escribiendo) todavía no es del caso.
+    await appendMail(
+      outlook,
+      {
+        subject: "RE: Rotura de lunas (borrador)",
+        inReplyTo: "<lunas@exp.test>",
+        references: ["<lunas@exp.test>"],
+      },
+      "Drafts",
+    );
     await settle();
 
     const detail = await call("GET", `/api/plugins/expedientes/cases/${opened.id}`);

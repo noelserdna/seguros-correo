@@ -5,6 +5,7 @@ import { apiGet, apiPost, ApiError } from "../../api.ts";
 import { Confirm } from "../../components/Confirm.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { ReadingPane } from "../../components/ReadingPane.tsx";
+import { composeFromPage } from "../../compose.ts";
 import { ContextMeter } from "../expedientes.tsx";
 import { navigate, useUrlState } from "../../url-state.ts";
 import {
@@ -906,7 +907,12 @@ function MailReader({
         </button>
       </div>
       <div className="flex min-h-0 grow">
-        <ReadingPane messageId={messageId} folderId={null} onSelect={() => undefined} />
+        <ReadingPane
+          messageId={messageId}
+          folderId={null}
+          onSelect={() => undefined}
+          onCompose={(kind, source) => void composeFromPage(kind, source)}
+        />
       </div>
     </div>
   );
@@ -942,7 +948,9 @@ function CloseDialog({
     >
       <span className="flex flex-col gap-2">
         {open.length > 0
-          ? `Quedan ${open.length} tareas abiertas: se marcarán como «no aplica».`
+          ? open.length === 1
+            ? "Queda 1 tarea abierta: se marcará como «no aplica»."
+            : `Quedan ${open.length} tareas abiertas: se marcarán como «no aplica».`
           : "Todas las tareas están hechas."}
         {unvalidated.length > 0 && (
           <span>
