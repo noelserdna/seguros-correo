@@ -19,6 +19,7 @@ import {
   KEY,
   useCaseChanges,
   useInsurers,
+  ContextMeter,
   type CaseMessage,
   type CaseSummary,
 } from "../expedientes.tsx";
@@ -750,6 +751,8 @@ function CaseView({ caseId, messageId }: { caseId: string; messageId: string | n
             </span>
           )}
         </div>
+        {/* Lo que reúne el expediente para resumirlo o preguntarle: correos, adjuntos y su texto. */}
+        <ContextMeter caseId={item.id} />
       </header>
       {sections.length > 0 && (
         <div className="grid grid-cols-1 gap-2.5 px-6 pt-3.5 xl:grid-cols-[minmax(0,1fr)_minmax(0,320px)]">

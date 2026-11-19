@@ -5,6 +5,7 @@ import { apiGet, apiPost, ApiError } from "../../api.ts";
 import { Confirm } from "../../components/Confirm.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { ReadingPane } from "../../components/ReadingPane.tsx";
+import { ContextMeter } from "../expedientes.tsx";
 import { navigate, useUrlState } from "../../url-state.ts";
 import {
   BASE,
@@ -1317,6 +1318,8 @@ export function CaseProject({ caseId, userId }: { caseId: string; userId: string
             </span>
           )}
         </div>
+        {/* Lo que reúne el expediente: correos, adjuntos y su texto (lo pone Expedientes). */}
+        <ContextMeter caseId={kase.id} />
         {view.phases.length > 0 && <PhaseBar phases={view.phases} />}
       </header>
       {change.error && (

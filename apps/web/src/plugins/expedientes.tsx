@@ -263,7 +263,7 @@ type CaseContext = {
 };
 
 /** Cuánto contexto reúne el expediente: lo que leería quien lo resuma o responda sobre él. */
-function ContextMeter({ caseId }: { caseId: string }) {
+export function ContextMeter({ caseId }: { caseId: string }) {
   const context = useQuery({
     queryKey: [...KEY, "context", caseId],
     queryFn: () => apiGet<CaseContext>(`${BASE}/cases/${caseId}/context`),
