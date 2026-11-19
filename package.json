@@ -26,6 +26,7 @@
     "web": "pnpm --filter @correo/web dev",
     "reprocesar": "tsx apps/server/scripts/reprocesar.ts",
     "sembrar": "tsx apps/server/scripts/sembrar.ts",
+    "demo": "tsx apps/server/scripts/demo.ts",
     "banco-ocr": "tsx --env-file-if-exists=.env apps/server/scripts/banco-ocr.ts"
   },
   "devDependencies": {

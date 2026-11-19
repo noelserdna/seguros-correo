@@ -34,6 +34,8 @@ pnpm usuario acceso <correo-usuario> <correo-buzón>   # le concede un buzón
 pnpm build             # compila la interfaz web (apps/web/dist)
 pnpm servidor          # interfaz y API en http://127.0.0.1:3000 + sincronización en vivo
 pnpm web               # interfaz en modo desarrollo (puerto 5173, con el servidor en marcha)
+pnpm demo correos      # buzón «Siniestros (demo)» en Docker con 32 siniestros inventados, conectado
+pnpm demo expedientes  # con el servidor en marcha: abre y lleva sus expedientes (rehacer = volver a lanzar)
 pnpm dev:down          # parar el entorno (dev:reset borra también los datos)
 ```
 
