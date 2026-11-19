@@ -127,10 +127,11 @@ export class PluginHost {
             // Un evento que un plugin no sabe tratar no debe atascar los siguientes.
             console.error(`Plugin ${plugin.id}: fallo con el evento ${event.id}`, error);
           }
+          // Si falta su cursor (una base recién vaciada), se crea: si no, se repetiría sin fin.
           await this.#db
-            .update(eventCursors)
-            .set({ lastEventId: event.id })
-            .where(eq(eventCursors.consumer, consumer));
+            .insert(eventCursors)
+            .values({ consumer, lastEventId: event.id })
+            .onConflictDoUpdate({ target: eventCursors.consumer, set: { lastEventId: event.id } });
           delivered++;
         }
       }
