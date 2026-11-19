@@ -6,6 +6,7 @@ import { Icon } from "../components/Icon.tsx";
 import { CatalogList } from "../components/settings.tsx";
 import { displayName, formatListDate } from "../format.ts";
 import type { WebPlugin } from "./types.ts";
+import { ExpedientesPageContext } from "./expedientes/Context.tsx";
 import { ExpedientesPage, openExpediente } from "./expedientes/Page.tsx";
 
 /**
@@ -535,6 +536,7 @@ export const expedientesPlugin: WebPlugin = {
   ],
 
   Page: ExpedientesPage,
+  PageContext: ExpedientesPageContext,
   listFilters: [
     {
       id: "sin-expediente",

@@ -8,7 +8,7 @@ import { processingState } from "../processing.ts";
 import { navigate } from "../url-state.ts";
 import { Icon } from "./Icon.tsx";
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
       <h3 className="m-0 text-[11px] font-semibold tracking-[0.04em] text-ink-2 uppercase">
@@ -34,7 +34,7 @@ const people = (list: { name: string; address: string }[]) =>
     : list.map((entry) => displayName(entry.name, entry.address)).join(", ");
 
 /** Texto largo que se enseña recortado y se despliega entero. */
-function LongText({ text }: { text: string }) {
+export function LongText({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const long = text.length > 420;
   return (
@@ -165,7 +165,7 @@ function AttachmentNote({ file }: { file: MessageDetail["attachments"][number] }
 }
 
 /** Un adjunto: se abre desde aquí, se ve su texto si se ha podido leer y se puede anotar. */
-function AttachmentContext({ file }: { file: MessageDetail["attachments"][number] }) {
+export function AttachmentContext({ file }: { file: MessageDetail["attachments"][number] }) {
   const [open, setOpen] = useState(false);
   const status = file.textStatus ?? "pending";
   const image = IMAGE.test(file.contentType);
@@ -261,8 +261,11 @@ export function ContextPanel({
   onSelect,
   overlay,
   full,
+  fallback,
 }: {
   message: MessageDetail | null;
+  /** Sin correo abierto: lo que aporte la página (p. ej. el contexto de todo un expediente). */
+  fallback?: ReactNode;
   onClose: () => void;
   onSelect: (id: string) => void;
   overlay: boolean;
@@ -317,7 +320,9 @@ export function ContextPanel({
         </button>
       </div>
 
-      {!message ? (
+      {!message && fallback ? (
+        <div className="flex min-h-0 grow flex-col gap-5 overflow-y-auto p-4">{fallback}</div>
+      ) : !message ? (
         <p className="m-0 p-4 text-xs leading-normal text-ink-2">
           Abre un correo para ver aquí quién lo envía y el resto de la conversación.
         </p>

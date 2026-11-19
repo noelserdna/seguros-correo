@@ -469,6 +469,11 @@ function Mailbox({ session }: { session: Session }) {
         {contextOpen && (
           <ContextPanel
             message={contextMessage}
+            fallback={
+              url.view === "plugin" && !url.messageId && activePlugin?.PageContext ? (
+                <activePlugin.PageContext sub={url.sub} />
+              ) : undefined
+            }
             onClose={() => setContextOpen(false)}
             onSelect={select}
             overlay={!wide}

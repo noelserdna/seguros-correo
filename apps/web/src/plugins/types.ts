@@ -45,6 +45,11 @@ export type WebPlugin = {
   listFilters?: { id: string; label: string; useMatches: (messageIds: string[]) => Set<string> }[];
   /** Aviso en el redactor según los destinatarios (p. ej. «esto saldrá por WhatsApp»). */
   ComposeNotice?: ComponentType<{ recipients: string[] }>;
+  /**
+   * Contenido del panel de contexto en la página del módulo cuando no hay ningún correo
+   * abierto (p. ej. el contexto de todo un expediente). Recibe la subruta de la página.
+   */
+  PageContext?: ComponentType<{ sub: string | null }>;
   /** Hueco 4: sección en el panel de contexto. */
   ContextSection?: ComponentType<{ message: MessageDetail; onSelect: (messageId: string) => void }>;
 };
