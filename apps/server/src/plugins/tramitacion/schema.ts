@@ -205,6 +205,7 @@ export async function setupTramitacion(db: Db): Promise<void> {
   await db.execute(sql`create index if not exists tra_events_case on tra_events (case_id, at)`);
 
   await migrateDirectory(db);
+  await setupDecisions(db);
 
   // La plantilla de serie, solo la primera vez.
   const existing = await db.execute(sql`select 1 from tra_templates limit 1`);
@@ -344,3 +345,48 @@ async function migrateDirectory(db: Db): Promise<void> {
     await tx.execute(sql`drop table tra_contacts`);
   });
 }
+
+/**
+ * Qué se decidió de cada correo que entró solo en un expediente con plan. Si sirvió de prueba
+ * de una tarea, ya está decidido; si no cambia nada, se apunta aquí. Los demás están «por decidir».
+ */
+async function setupDecisions(db: Db): Promise<void> {
+  const exists = await db.execute<{ ok: boolean }>(
+    sql`select to_regclass('tra_mail_decisions') is not null as ok`,
+  );
+  await db.execute(sql`
+    create table if not exists tra_mail_decisions (
+      case_id uuid not null references exp_cases(id) on delete cascade,
+      message_id uuid not null references messages(id) on delete cascade,
+      decision text not null,
+      decided_by uuid,
+      decided_at timestamptz not null default now(),
+      primary key (case_id, message_id)
+    )`);
+  // La primera vez, lo que ya había se da por decidido: la cola empieza vacía.
+  if (!exists.rows[0]?.ok) {
+    await db.execute(sql`
+      insert into tra_mail_decisions (case_id, message_id, decision)
+      select cm.case_id, cm.message_id, 'anterior' from exp_case_messages cm
+        join tra_case_plans p on p.case_id = cm.case_id
+      on conflict do nothing`);
+  }
+}
+
+/**
+ * Correos por decidir de los expedientes con alias `c`: entraron solos (por su conversación o
+ * por un número), son recibidos, llegaron después de aplicar el plan y nadie ha dicho qué son.
+ */
+export const undecidedSql = sql`
+  select cm.case_id as "caseId", m.id, m.subject, m.from_name as "fromName",
+         m.from_address as "fromAddress", m.internal_date as "at"
+    from exp_case_messages cm
+    join messages m on m.id = cm.message_id
+    join tra_case_plans p on p.case_id = cm.case_id
+   where cm.how in ('thread', 'reference', 'claim') and not cm.excluded
+     and coalesce(m.direction, 'in') <> 'out'
+     and cm.added_at > p.applied_at
+     and not exists (select 1 from tra_task_evidence te join tra_tasks t on t.id = te.task_id
+                      where t.case_id = cm.case_id and te.message_id = m.id)
+     and not exists (select 1 from tra_mail_decisions d
+                      where d.case_id = cm.case_id and d.message_id = m.id)`;

@@ -1417,6 +1417,16 @@ async function expedientes(): Promise<void> {
     await api("POST", `${E}/cases/${target.rows[0]!.id}/messages`, { messageId: bulletin });
     await api("PUT", `${E}/cases/${target.rows[0]!.id}/messages/${bulletin}`, { excluded: true });
 
+    // Lo que entró solo en los expedientes se da por decidido, salvo lo de los dos últimos días:
+    // así se ve la cola de «correos por decidir» sin que la demo empiece llena.
+    await db.execute(sql`
+      insert into tra_mail_decisions (case_id, message_id, decision)
+      select cm.case_id, cm.message_id, 'anterior'
+        from exp_case_messages cm join exp_cases c on c.id = cm.case_id
+        join messages m on m.id = cm.message_id
+       where c.account_id = ${account.id} and m.internal_date < now() - interval '2 days'
+      on conflict do nothing`);
+
     // Todo lo de la demo se da por visto: lo que llegue después (un WhatsApp, un correo) será lo nuevo.
     await db.execute(sql`
       insert into exp_case_seen (user_id, case_id, seen_at)

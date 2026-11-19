@@ -259,7 +259,16 @@ function MyTasksView({ query }: { query: string }) {
   const apply = useApplyView();
   const queryClient = useQueryClient();
   const needle = query.trim().toLowerCase();
-  const total = Object.values(tasks.data?.groups ?? {}).reduce((sum, list) => sum + list.length, 0);
+  const undecided = (tasks.data?.undecided ?? []).filter(
+    (entry) =>
+      !needle ||
+      [entry.subject, entry.fromName, entry.case.number, entry.case.title].some((text) =>
+        (text ?? "").toLowerCase().includes(needle),
+      ),
+  );
+  const total =
+    Object.values(tasks.data?.groups ?? {}).reduce((sum, list) => sum + list.length, 0) +
+    (tasks.data?.undecided.length ?? 0);
   const done = (task: MyTask) =>
     void tramitacion
       .patchTask(task.taskId, { status: "hecha" })
@@ -280,7 +289,50 @@ function MyTasksView({ query }: { query: string }) {
           </span>
         </div>
       )}
-      {tasks.data && total > 0 && (
+      {undecided.length > 0 && (
+        <section
+          aria-label="Correos por decidir"
+          className="mb-3 overflow-hidden rounded-md border border-line"
+        >
+          <div className="flex h-[30px] items-center gap-2 border-b border-line bg-ground px-3 text-xs font-semibold">
+            <Icon name="mail" size={12} />
+            Correos por decidir
+            <span className="font-normal text-ink-2">{undecided.length}</span>
+            <span className="grow" />
+            <span className="font-normal text-ink-2">
+              Entraron solos en tus expedientes: ¿qué son?
+            </span>
+          </div>
+          {undecided.map((entry) => (
+            <div
+              key={`${entry.caseId}-${entry.id}`}
+              className="flex h-9 items-center gap-3 border-b border-line-soft pr-3 pl-4 last:border-b-0"
+            >
+              <span className="size-2 shrink-0 rounded-full bg-accent" aria-hidden />
+              <button
+                type="button"
+                onClick={() => openCase(entry.case.id, entry.id)}
+                className="min-w-0 grow truncate border-0 bg-transparent p-0 text-left text-ink"
+              >
+                <b className="font-semibold">{entry.fromName || entry.fromAddress}</b> ·{" "}
+                {entry.subject || "(sin asunto)"}
+              </button>
+              <span className="hidden w-[320px] shrink-0 truncate text-xs text-ink-2 md:block">
+                <b className="font-semibold text-ink">{entry.case.number}</b>
+                {entry.case.status === "cerrado" ? " (cerrado)" : ""} · {entry.case.title}
+              </span>
+              <button
+                type="button"
+                className={buttonClass.small}
+                onClick={() => openCase(entry.case.id, entry.id)}
+              >
+                Decidir
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+      {tasks.data && total - (tasks.data.undecided.length ?? 0) > 0 && (
         <div className="overflow-hidden rounded-md border border-line">
           {GROUPS.map((group) => {
             const list = tasks.data.groups[group.id].filter(

@@ -370,6 +370,51 @@ describe("tramitación", () => {
     expect(view.phases[0]!.state).toBe("por_validar");
   });
 
+  it("lo que entra solo en el expediente queda por decidir hasta que alguien dice qué es", async () => {
+    await appendMail(outlook, {
+      subject: "Atestado 2026/9070",
+      messageId: "<at-9070@guardia.test>",
+    });
+    await settle();
+    let view = (
+      await call("POST", `${BASE}/open`, {
+        messageId: await idOf("Atestado 2026/9070"),
+        templateId: await templateId(),
+        lossDate: addCalendarDays(todayInSpain(), -3),
+      })
+    ).json<View & { undecided: { id: string }[] }>();
+    // Lo que había al abrirlo no cuenta.
+    expect(view.undecided).toEqual([]);
+    const reply = (subject: string, id: string) =>
+      appendMail(outlook, {
+        subject,
+        messageId: id,
+        inReplyTo: "<at-9070@guardia.test>",
+        references: "<at-9070@guardia.test>",
+      });
+    await reply("Re: Atestado 2026/9070 · nada nuevo", "<r1-9070@guardia.test>");
+    await reply("Re: Atestado 2026/9070 · el DNI", "<r2-9070@guardia.test>");
+    await settle();
+    const caseUrl = `${BASE}/cases/${view.case.id}`;
+    view = (await call("GET", caseUrl)).json<typeof view>();
+    expect(view.undecided).toHaveLength(2);
+    const mine = (await call("GET", `${BASE}/my-tasks`)).json<{
+      undecided: { case: { id: string } }[];
+    }>();
+    expect(mine.undecided.filter((entry) => entry.case.id === view.case.id)).toHaveLength(2);
+    // Uno no cambia nada; el otro es la prueba de una tarea. Ninguno queda por decidir.
+    const nothing = await idOf("Re: Atestado 2026/9070 · nada nuevo");
+    view = (await call("POST", `${caseUrl}/decide`, { messageId: nothing })).json<typeof view>();
+    expect(view.undecided).toHaveLength(1);
+    await call("POST", `${BASE}/tasks/${task(view, "T2").id}/evidence`, {
+      messageId: await idOf("Re: Atestado 2026/9070 · el DNI"),
+      complete: false,
+    });
+    view = (await call("GET", caseUrl)).json<typeof view>();
+    expect(view.undecided).toEqual([]);
+    expect(view.history.some((entry) => entry.kind === "nota")).toBe(true);
+  });
+
   it("cerrar pide confirmación si quedan tareas, y la cartera lo refleja", async () => {
     const view = await open("Atestado 2026/9002");
     const url = `${BASE}/cases/${view.case.id}/close`;

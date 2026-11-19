@@ -98,6 +98,7 @@ export type CaseView = {
     email: string | null;
     phone: string | null;
   }[];
+  undecided: Undecided[];
   history: {
     id: string;
     at: string;
@@ -138,9 +139,21 @@ export type MyTask = {
   chaseDue: boolean;
   case: { id: string; number: string; title: string };
 };
+/** Un correo que entró solo en un expediente y nadie ha dicho qué es. */
+export type Undecided = {
+  caseId: string;
+  id: string;
+  subject: string;
+  fromName: string;
+  fromAddress: string;
+  at: string;
+};
 export type MyTasks = {
   today: string;
   groups: Record<"vencidas" | "hoy" | "semana" | "despues" | "esperando", MyTask[]>;
+  undecided: (Undecided & {
+    case: { id: string; number: string; title: string; status: "abierto" | "cerrado" };
+  })[];
 };
 
 /** Un tercero de la agenda de contactos, con su primer papel para listas cortas. */
@@ -253,6 +266,8 @@ export const tramitacion = {
       messageIds: Array.isArray(messageIds) ? messageIds : [messageIds],
       complete,
     }),
+  decide: (caseId: string, messageId: string) =>
+    apiPost<CaseView>(`${BASE}/cases/${caseId}/decide`, { messageId }),
   removeEvidence: (id: string, messageId: string) =>
     apiDelete<CaseView>(`${BASE}/tasks/${id}/evidence/${messageId}`),
   chaseDraft: (id: string) =>

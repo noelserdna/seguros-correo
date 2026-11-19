@@ -5,7 +5,7 @@ import { apiGet, apiPost, ApiError } from "../../api.ts";
 import { Confirm } from "../../components/Confirm.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { ReadingPane } from "../../components/ReadingPane.tsx";
-import { navigate } from "../../url-state.ts";
+import { navigate, useUrlState } from "../../url-state.ts";
 import {
   BASE,
   KEY,
@@ -824,11 +824,28 @@ function MailReader({
     (task) => task.state === "esperando" || task.state === "lista" || task.state === "en_curso",
   );
   const unvalidated = view.phases.filter((phase) => phase.state === "por_validar");
+  const pending = view.undecided.some((entry) => entry.id === messageId);
   return (
     <div className="absolute top-0 right-0 bottom-0 z-20 flex w-[min(680px,100%)] flex-col border-l border-line bg-panel shadow-[-8px_0_24px_rgba(27,35,48,0.12)]">
       <div className="flex shrink-0 items-start gap-2 border-b border-line bg-ground p-3 text-xs">
         <div className="flex min-w-0 grow flex-col gap-1.5">
-          <b className="font-semibold">¿Qué tarea cumple este correo?</b>
+          <span className="flex items-center gap-2">
+            <b className="grow font-semibold">¿Qué tarea cumple este correo?</b>
+            {pending && (
+              <button
+                type="button"
+                className={buttonClass.small}
+                onClick={() => change.run(() => tramitacion.decide(view.case.id, messageId))}
+              >
+                No cambia nada
+              </button>
+            )}
+          </span>
+          {pending && (
+            <span className="text-ink-2">
+              Entró solo en el expediente y nadie ha dicho todavía qué es.
+            </span>
+          )}
           {unvalidated.map((phase) => {
             const target = proofTarget(view, phase.id);
             return (
@@ -1139,7 +1156,8 @@ export function CaseProject({ caseId, userId }: { caseId: string; userId: string
   const [tab, setTab] = useState<"plan" | "intervinientes" | "historial">("plan");
   const [filter, setFilter] = useState<Filter>("pendientes");
   const [closing, setClosing] = useState(false);
-  const [reading, setReading] = useState<string | null>(null);
+  const url = useUrlState();
+  const [reading, setReading] = useState<string | null>(url.messageId);
   const [validating, setValidating] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string> | null>(null);
@@ -1318,6 +1336,31 @@ export function CaseProject({ caseId, userId }: { caseId: string; userId: string
       )}
       <div className="relative flex min-h-0 grow">
         <div className="flex min-w-0 grow flex-col overflow-hidden">
+          {view.undecided.length > 0 && (
+            <div
+              role="status"
+              className="mx-5 mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-line-strong bg-ground px-3 py-2 text-[13px]"
+            >
+              <Icon name="mail" size={14} />
+              <b className="font-semibold">
+                {view.undecided.length === 1
+                  ? "1 correo por decidir"
+                  : `${view.undecided.length} correos por decidir`}
+              </b>
+              <span className="min-w-0 grow truncate text-ink-2">
+                Entraron solos: «{view.undecided[0]!.subject || "(sin asunto)"}»
+                {view.undecided.length > 1 ? " y más" : ""}. ¿Cumplen una tarea, son una parte o no
+                cambian nada?
+              </span>
+              <button
+                type="button"
+                className={buttonClass.small}
+                onClick={() => setReading(view.undecided[0]!.id)}
+              >
+                Mirar
+              </button>
+            </div>
+          )}
           {view.plan ? (
             <NextStepBand view={view} change={change} onValidate={setValidating} />
           ) : (

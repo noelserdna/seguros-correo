@@ -22,11 +22,12 @@ export async function startChase(taskId: string): Promise<void> {
   navigate({ view: "mail", accountId: draft.accountId, composeId: outbound.id, messageId: null });
 }
 
-export const openCase = (caseId: string) =>
+/** Abre la ficha del expediente; con `messageId`, con ese correo ya abierto. */
+export const openCase = (caseId: string, messageId: string | null = null) =>
   navigate({
     view: "plugin",
     pluginId: "tramitacion",
     sub: `exp:${caseId}`,
-    messageId: null,
+    messageId,
     composeId: null,
   });
