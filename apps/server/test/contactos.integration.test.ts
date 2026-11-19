@@ -19,6 +19,7 @@ import { tramitacionPlugin } from "../src/plugins/tramitacion/index.ts";
 import {
   ANA,
   appendMail,
+  LUIS,
   createTestAccount,
   openTestEnv,
   otherClient,
@@ -383,6 +384,73 @@ describe("contactos", () => {
     });
     await call("POST", `${E}/cases/${kase.id}/seen`, {});
     expect((await find("7781"))[0]!.newCount).toBe(0);
+  });
+
+  it("un expediente lo ve quien tiene el buzón de alguno de sus correos, aunque no lo creara", async () => {
+    await appendMail(outlook, {
+      from: "Óscar Biel <oscar@biel.test>",
+      subject: "Golpe 4410-KTR",
+      text: "Hola.",
+    });
+    await syncAll(env, account);
+    const kase = (
+      await call("POST", "/api/plugins/expedientes/cases", {
+        messageId: await idOf("Golpe 4410-KTR"),
+      })
+    ).json<{ case: { id: string } }>().case;
+    // Un correo del caso está en otro buzón, el de Luis, que Marta no ve.
+    await resetMailbox(LUIS);
+    const luisClient = await otherClient(LUIS);
+    const luis = await createTestAccount(env, LUIS);
+    await appendMail(luisClient, {
+      from: "Mutua <m@mutua.test>",
+      subject: "Alta 4410-KTR",
+      text: "Alta.",
+    });
+    await luisClient.logout();
+    await syncAll(env, luis);
+    await env.db.execute(sql`
+      insert into exp_case_messages (message_id, case_id, how) values (${await idOf("Alta 4410-KTR")}, ${kase.id}, 'manual')`);
+    // Pedro solo tiene el buzón de Luis: ve el expediente, con el correo de su buzón.
+    const pedro = await createUser(env.db, {
+      email: "pedro@c.test",
+      name: "Pedro",
+      password: PASSWORD,
+    });
+    await env.db.insert(accountAccess).values({ userId: pedro.id, accountId: luis.id });
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: pedro.email, password: PASSWORD },
+    });
+    const cookie = `${SESSION_COOKIE}=${login.cookies.find((entry) => entry.name === SESSION_COOKIE)?.value}`;
+    const as = (url: string) => app.inject({ method: "GET", url, headers: { cookie } });
+    const list = (await as("/api/plugins/expedientes/cases")).json<{ cases: { id: string }[] }>()
+      .cases;
+    expect(list.map((entry) => entry.id)).toContain(kase.id);
+    const detail = await as(`/api/plugins/expedientes/cases/${kase.id}`);
+    expect(detail.statusCode).toBe(200);
+    expect(
+      detail.json<{ messages: { subject: string }[] }>().messages.map((entry) => entry.subject),
+    ).toEqual(["Alta 4410-KTR"]);
+    // Y quien no tiene ninguno de los dos buzones, no lo ve.
+    const nadie = await createUser(env.db, {
+      email: "nadie@c.test",
+      name: "Nadie",
+      password: PASSWORD,
+    });
+    const other = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: nadie.email, password: PASSWORD },
+    });
+    const otherCookie = `${SESSION_COOKIE}=${other.cookies.find((entry) => entry.name === SESSION_COOKIE)?.value}`;
+    const hidden = await app.inject({
+      method: "GET",
+      url: `/api/plugins/expedientes/cases/${kase.id}`,
+      headers: { cookie: otherCookie },
+    });
+    expect(hidden.statusCode).toBe(404);
   });
 
   it("el directorio antiguo de la tramitación pasa a la agenda con los mismos identificadores", async () => {

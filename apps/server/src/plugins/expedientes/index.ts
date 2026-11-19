@@ -298,6 +298,34 @@ const messagesOfCase = async (db: Db, caseId: string, accountIds: string[], user
           order by "internalDate", added_at`)
       ).rows;
 
+/**
+ * Quién ve un expediente: quien tiene su buzón de origen o el de alguno de sus correos, lo haya
+ * creado o no. Condición SQL sobre el expediente con alias `alias`.
+ */
+export const caseVisible = (alias: "c" | "e", accountIds: string[]) =>
+  accountIds.length === 0
+    ? sql`false`
+    : sql`(${sql.raw(alias)}.account_id in (${uuids(accountIds)})
+           or exists (select 1 from exp_case_messages vcm join messages vm on vm.id = vcm.message_id
+                       where vcm.case_id = ${sql.raw(alias)}.id and vm.account_id in (${uuids(accountIds)})))`;
+
+/** Como `assertAccess`, pero para un expediente: si no lo ve, como si no existiera. */
+export async function assertCaseAccess(
+  db: Db,
+  userId: string,
+  row: { id: string; accountId: string },
+): Promise<void> {
+  const accountIds = await accessibleAccountIds(db, userId);
+  if (accountIds.includes(row.accountId)) return;
+  const seen =
+    accountIds.length === 0
+      ? { rows: [] }
+      : await db.execute(sql`
+          select 1 from exp_case_messages cm join messages m on m.id = cm.message_id
+           where cm.case_id = ${row.id} and m.account_id in (${uuids(accountIds)}) limit 1`);
+  if (seen.rows.length === 0) throw notFound();
+}
+
 /** Cierra el expediente. Lo usa también la tramitación, que antes comprueba sus tareas. */
 export async function closeCase(db: Db | Tx, caseId: string, userId: string, reason: CloseReason) {
   await db.execute(sql`
@@ -415,7 +443,7 @@ export const expedientesPlugin: ServerPlugin = {
       );
       const row = found.rows[0];
       if (!row) throw notFound();
-      await assertAccess(db, userId, row.accountId);
+      await assertCaseAccess(db, userId, row);
       return row;
     }
 
@@ -757,7 +785,7 @@ export const expedientesPlugin: ServerPlugin = {
                   join messages m on m.id = cm.message_id
                  where cm.case_id = c.id and m.account_id in (${uuids(accountIds)})) as "lastMessageAt"
           from exp_cases c
-         where c.account_id in (${uuids(accountIds)})
+         where ${caseVisible("c", accountIds)}
            ${status}
            ${query.mine === "1" ? sql`and coalesce(c.owner_id, c.created_by) = ${user.id}` : sql``}
            ${tra && query.noPlan === "1" ? sql`and not exists (select 1 from tra_case_plans tp where tp.case_id = c.id)` : sql``}
@@ -838,9 +866,8 @@ export const expedientesPlugin: ServerPlugin = {
       const { id } = idParams.parse(request.params);
       await loadMessage(user.id, id);
       const accountIds = await accessibleAccountIds(db, user.id);
-      const visible = (await casesOfMessage(db, id)).filter((row) =>
-        accountIds.includes(row.accountId),
-      );
+      // El correo es suyo: los expedientes en que está los ve, sean del buzón que sean.
+      const visible = await casesOfMessage(db, id);
       return {
         cases: await Promise.all(
           visible.map(async (row) => ({
@@ -899,7 +926,7 @@ export const expedientesPlugin: ServerPlugin = {
                (select max(m.internal_date) from exp_case_messages cm join messages m on m.id = cm.message_id
                  where cm.case_id = c.id) as "lastMessageAt"
           from exp_cases c
-         where c.account_id in (${uuids(accountIds)}) and c.status = 'abierto'
+         where ${caseVisible("c", accountIds)} and c.status = 'abierto'
            and not exists (select 1 from exp_case_messages x where x.case_id = c.id and x.message_id = ${id})
            and (exists (select 1 from exp_case_messages cm join messages m on m.id = cm.message_id
                          where cm.case_id = c.id and lower(m.from_address) in ${addresses})
@@ -918,7 +945,7 @@ export const expedientesPlugin: ServerPlugin = {
         select cm.message_id as "messageId", c.number
           from exp_case_messages cm join exp_cases c on c.id = cm.case_id
          where cm.message_id in (${uuids(messageIds)})
-           and c.account_id in (${uuids(accountIds)})
+           and cm.message_id in (select m.id from messages m where m.account_id in (${uuids(accountIds)}))
          order by c.created_at`);
       const labels: Record<string, string[]> = {};
       for (const row of rows.rows) (labels[row.messageId] ??= []).push(row.number);

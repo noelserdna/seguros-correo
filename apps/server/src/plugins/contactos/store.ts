@@ -1,6 +1,7 @@
 /** Consultas de la agenda: fichas, quién escribe desde qué dirección y qué falta por revisar. */
 import { sql, type SQL } from "drizzle-orm";
 import type { Db, Tx } from "../../db/client.ts";
+import { caseVisible } from "../expedientes/index.ts";
 import {
   channelOfAddress,
   cleanName,
@@ -159,10 +160,6 @@ export async function channelEvidence(db: Db, contactId: string) {
 
 export async function casesOf(db: Db, contactId: string, accountIds: string[]) {
   if (!(await hasTable(db, "exp_cases")) || accountIds.length === 0) return [];
-  const accounts = sql.join(
-    accountIds.map((id) => sql`${id}::uuid`),
-    sql`, `,
-  );
   const parties = (await hasTable(db, "tra_case_parties"))
     ? sql`union select p.case_id, p.role from tra_case_parties p where p.contact_id = ${contactId}`
     : sql``;
@@ -180,7 +177,7 @@ export async function casesOf(db: Db, contactId: string, accountIds: string[]) {
        where ${senderMatches(sql`m.from_address`, sql`${contactId}::uuid`)})
     select e.id, e.number, e.title, e.status, (array_agg(f.role) filter (where f.role is not null))[1] as role
       from exp_cases e join found f on f.case_id = e.id
-     where e.account_id in (${accounts})
+     where ${caseVisible("e", accountIds)}
      group by e.id order by e.status, e.created_at desc limit 50`);
   return rows.rows;
 }

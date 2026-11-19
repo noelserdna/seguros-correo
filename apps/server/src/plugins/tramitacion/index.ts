@@ -15,6 +15,8 @@ import {
   CLOSE_REASONS,
   createCaseFromMessage,
   notify,
+  assertCaseAccess,
+  caseVisible,
   type CaseRow,
 } from "../expedientes/index.ts";
 import type { Db, Tx } from "../../db/client.ts";
@@ -28,6 +30,7 @@ import {
   setupTramitacion,
   TemplateError,
   templateTree,
+  undecidedSql,
 } from "./schema.ts";
 import {
   applyTemplate,
@@ -180,7 +183,7 @@ export const tramitacionPlugin: ServerPlugin = {
         await db.execute<CaseRow>(sql`select ${caseColumns} from exp_cases c where c.id = ${id}`)
       ).rows[0];
       if (!row) throw notFound();
-      await assertAccess(db, userId, row.accountId);
+      await assertCaseAccess(db, userId, row);
       return row;
     }
 
@@ -220,10 +223,14 @@ export const tramitacionPlugin: ServerPlugin = {
                (select t.name from tra_tasks t where t.id = e.task_id) as "taskName",
                (select u.name from users u where u.id = e.user_id) as "userName"
           from tra_events e where e.case_id = ${row.id} order by e.at desc, e.id desc limit 50`);
+      // Correos que entraron solos y nadie ha dicho qué son.
+      const undecided = await db.execute(sql`
+        select * from (${undecidedSql} and cm.case_id = ${row.id}) u order by "at"`);
       return {
         case: row,
         plan: data.plan,
         today,
+        undecided: undecided.rows,
         phases: summary.phases,
         tasks: summary.tasks.map((task) => {
           const raw = summary.taskRows.get(task.id)!;
@@ -791,14 +798,10 @@ export const tramitacionPlugin: ServerPlugin = {
     async function visibleCases(userId: string, where: ReturnType<typeof sql>) {
       const accountIds = await accessibleAccountIds(db, userId);
       if (accountIds.length === 0) return [];
-      const ids = sql.join(
-        accountIds.map((entry) => sql`${entry}::uuid`),
-        sql`, `,
-      );
       return (
         await db.execute<CaseRow>(sql`
           select ${caseColumns} from exp_cases c
-           where c.account_id in (${ids}) and exists (select 1 from tra_case_plans p where p.case_id = c.id)
+           where ${caseVisible("c", accountIds)} and exists (select 1 from tra_case_plans p where p.case_id = c.id)
              and ${where}`)
       ).rows;
     }
@@ -929,7 +932,58 @@ export const tramitacionPlugin: ServerPlugin = {
           else groups.despues.push(entry);
         }
       }
-      return { today, groups };
+      // Correos por decidir de los expedientes que lleva (o que no lleva nadie).
+      // También los cerrados: un correo que llega a un caso cerrado puede pedir reabrirlo.
+      const all = await visibleCases(user.id, sql`true`);
+      const mine = all
+        .filter((row) => (row.ownerId ?? row.createdBy) === user.id)
+        .map((row) => row.id);
+      const undecided =
+        mine.length === 0
+          ? []
+          : (
+              await db.execute<{ caseId: string }>(sql`
+                select * from (${undecidedSql}
+                  and cm.case_id in (${sql.join(
+                    mine.map((id) => sql`${id}::uuid`),
+                    sql`, `,
+                  )})) u order by "at" desc limit 100`)
+            ).rows.map((entry) => {
+              const row = all.find((kase) => kase.id === entry.caseId)!;
+              return {
+                ...entry,
+                case: { id: row.id, number: row.number, title: row.title, status: row.status },
+              };
+            });
+      return { today, groups, undecided };
+    });
+
+    // Un correo que entró solo en el expediente no cambia nada: deja de estar por decidir.
+    app.post("/cases/:id/decide", async (request) => {
+      const { user } = requireSession(request);
+      const { id } = idParams.parse(request.params);
+      const { messageId } = z.object({ messageId: z.uuid() }).parse(request.body);
+      const kase = await loadCase(user.id, id);
+      const message = await db.execute<{ subject: string }>(sql`
+        select m.subject from exp_case_messages cm join messages m on m.id = cm.message_id
+         where cm.case_id = ${id} and cm.message_id = ${messageId}`);
+      if (!message.rows[0]) throw notFound();
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`
+          insert into tra_mail_decisions (case_id, message_id, decision, decided_by)
+          values (${id}, ${messageId}, 'nada', ${user.id}) on conflict do nothing`);
+        await recordEvent(tx, {
+          caseId: id,
+          userId: user.id,
+          kind: "nota",
+          detail: {
+            text: `«${message.rows[0]!.subject || "(sin asunto)"}»: no cambia nada.`,
+            messageId,
+          },
+        });
+      });
+      await touched(kase, user.id, "mail_decided", { messageId });
+      return viewOf(user.id, id);
     });
 
     // Quién puede llevar las tareas de un expediente: quien tiene su buzón.
@@ -968,8 +1022,7 @@ export const tramitacionPlugin: ServerPlugin = {
             sql`select ${caseColumns} from exp_cases c where c.id = ${caseId}`,
           )
         ).rows[0]!;
-        const accountIds = await accessibleAccountIds(db, user.id);
-        if (!accountIds.includes(row.accountId)) continue;
+        // El correo es suyo, así que ve los expedientes en que está.
         const summary = summarizeCase(engineCase(row), plans.get(caseId)!, today);
         const awaited = [...summary.taskRows.values()].find(
           (task) => task.status === "esperando" && isFrom(task, from),

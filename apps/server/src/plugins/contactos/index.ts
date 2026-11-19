@@ -6,8 +6,9 @@
  */
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { accessibleAccountIds, assertAccess } from "../../http/access.ts";
+import { accessibleAccountIds } from "../../http/access.ts";
 import { audit, HttpError, requireAdmin, requireSession } from "../../http/app.ts";
+import { assertCaseAccess } from "../expedientes/index.ts";
 import type { ServerPlugin } from "../host.ts";
 import { channelOfAddress, cleanName, guessRole, normalizeChannel, ROLES } from "./normalize.ts";
 import { setupContactos } from "./schema.ts";
@@ -311,7 +312,7 @@ export const contactosPlugin: ServerPlugin = {
         )
       ).rows;
       if (!row) throw new HttpError(404, "not_found", "No encontrado.");
-      await assertAccess(db, userId, row.accountId);
+      await assertCaseAccess(db, userId, { id: caseId, accountId: row.accountId });
     }
 
     app.get("/cases/:id/client", async (request) => {
