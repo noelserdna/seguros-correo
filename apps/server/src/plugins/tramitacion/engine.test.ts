@@ -445,3 +445,19 @@ describe("motor de la tramitación", () => {
     expect(phaseStates(two.slice(0, 1), deriveTasks(skipped, kase, TODAY)).get("p1")).toBe("hecha");
   });
 });
+
+describe("quién escribe", () => {
+  it("reconoce al tercero esperado por su correo o por su WhatsApp", async () => {
+    const { isFrom, phoneDigits } = await import("./store.ts");
+    const task = {
+      waitingContactEmail: "Informes@Norte.test",
+      waitingContactPhone: "600 111 222",
+    } as Parameters<typeof isFrom>[0];
+    expect(isFrom(task, "informes@norte.test")).toBe(true);
+    expect(isFrom(task, "34600111222@whatsapp.invalid")).toBe(true);
+    expect(isFrom(task, "34600999999@whatsapp.invalid")).toBe(false);
+    expect(isFrom(task, "otro@norte.test")).toBe(false);
+    expect(phoneDigits("+34 600 111 222")).toBe("34600111222");
+    expect(phoneDigits("0034600111222")).toBe("34600111222");
+  });
+});

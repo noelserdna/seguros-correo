@@ -33,6 +33,8 @@ export type WebPlugin = {
    * tramitación). Solo lo usan módulos que dependen de Expedientes.
    */
   CaseSection?: ComponentType<{ caseId: string }>;
+  /** Aviso en el redactor según los destinatarios (p. ej. «esto saldrá por WhatsApp»). */
+  ComposeNotice?: ComponentType<{ recipients: string[] }>;
   /** Hueco 4: sección en el panel de contexto. */
   ContextSection?: ComponentType<{ message: MessageDetail; onSelect: (messageId: string) => void }>;
 };

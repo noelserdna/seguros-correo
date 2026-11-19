@@ -22,6 +22,7 @@ type Status = {
   verifyToken: boolean;
   appSecret: boolean;
   token: boolean;
+  phoneNumberId: boolean;
   incoming: number;
   outgoing: number;
   contacts: number;
@@ -162,6 +163,11 @@ function WhatsAppSettings({ isAdmin }: { isAdmin: boolean }) {
             title="Permiso para traer fotos y documentos"
             detail="WHATSAPP_TOKEN: sin él llegan los textos, pero no los adjuntos."
           />
+          <Check
+            ok={data.phoneNumberId}
+            title="Responder desde aquí"
+            detail="WHATSAPP_PHONE_NUMBER_ID: el número de empresa en Meta. Sin él, se lee todo pero se contesta desde el móvil."
+          />
         </Rows>
       </SettingsBlock>
       <SettingsBlock
@@ -185,7 +191,70 @@ function WhatsAppSettings({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+type Window = { open: boolean; until: string | null; name: string | null; ready: boolean };
+const isWhatsApp = (address: string) => address.toLowerCase().endsWith("@whatsapp.invalid");
+
+/** En el redactor: cómo saldrá el mensaje si va a un contacto de WhatsApp. */
+function ComposeNotice({ recipients }: { recipients: string[] }) {
+  const target = recipients.find(isWhatsApp);
+  const window = useQuery({
+    queryKey: [...KEY, "window", target],
+    queryFn: () => apiGet<Window>(`${BASE}/window?address=${encodeURIComponent(target!)}`),
+    enabled: Boolean(target),
+    refetchInterval: 60_000,
+  });
+  if (!target) return null;
+  const tone = (warn: boolean) =>
+    `mx-5 mt-2 flex items-start gap-2 rounded-md border px-3 py-2 text-xs leading-normal ${warn ? "border-warn-line bg-warn text-warn-ink" : "border-line bg-ground text-ink"}`;
+  if (recipients.length > 1) {
+    return (
+      <p role="alert" className={tone(true)}>
+        <Icon name="triangle" size={13} className="mt-0.5 shrink-0 text-flag" />
+        Un WhatsApp va a un solo contacto. Quita los demás destinatarios o escríbeles un correo
+        aparte.
+      </p>
+    );
+  }
+  const data = window.data;
+  if (!data) return null;
+  const who = data.name ?? "este contacto";
+  if (!data.ready) {
+    return (
+      <p role="alert" className={tone(true)}>
+        <Icon name="triangle" size={13} className="mt-0.5 shrink-0 text-flag" />
+        Este correo iría por WhatsApp, pero falta configurar el envío (Configuración › WhatsApp).
+        Contesta desde el móvil.
+      </p>
+    );
+  }
+  if (!data.open) {
+    return (
+      <p role="alert" className={tone(true)}>
+        <Icon name="triangle" size={13} className="mt-0.5 shrink-0 text-flag" />
+        Han pasado más de 24 horas desde el último mensaje de {who}: WhatsApp solo deja escribirle
+        con una plantilla aprobada, y aún no se puede desde aquí. Llámale o escríbele por correo.
+      </p>
+    );
+  }
+  const until = new Date(data.until!).toLocaleString("es-ES", {
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return (
+    <p role="status" className={tone(false)}>
+      <Icon name="sent" size={13} className="mt-0.5 shrink-0 text-ink-2" />
+      <span>
+        Saldrá por <b className="font-semibold">WhatsApp</b> a {who}: solo el texto nuevo, sin
+        formato, cita ni firma; cada adjunto, como un mensaje aparte. Se le puede escribir hasta el{" "}
+        {until}.
+      </span>
+    </p>
+  );
+}
+
 export const whatsappPlugin: WebPlugin = {
+  ComposeNotice,
   id: "whatsapp",
   settings: [
     {

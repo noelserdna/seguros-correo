@@ -3,15 +3,20 @@
  * carpeta del buzón de pruebas, la sincronización lo trae y cada contacto es un hilo.
  * Meta (sus avisos y la descarga de adjuntos) se simula aquí mismo.
  */
-import { createServer, type Server } from "node:http";
+import { Readable } from "node:stream";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { createUser } from "../src/auth/users.ts";
+import { outboundAttachments, outboundMessages } from "../src/db/schema.ts";
 import { buildApp } from "../src/http/app.ts";
+import { registerTransport } from "../src/outbound/transports.ts";
 import type { Account } from "../src/imap/connection.ts";
 import { PluginHost } from "../src/plugins/host.ts";
 import { whatsappPlugin } from "../src/plugins/whatsapp/index.ts";
+import { whatsappTransport } from "../src/plugins/whatsapp/send.ts";
 import { contactAddress } from "../src/plugins/whatsapp/mail.ts";
 import { signBody } from "../src/plugins/whatsapp/meta.ts";
 import { echoes, incoming, media, text } from "../src/plugins/whatsapp/simulate.ts";
@@ -38,15 +43,39 @@ let app: FastifyInstance;
 let account: Account;
 let graph: Server;
 let graphUrl: string;
+let graphSent: Record<string, unknown>[] = [];
+const readBody = (request: IncomingMessage) =>
+  new Promise<string>((resolve) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+  });
 
 /** Hace de la API de Meta para los adjuntos: primero la dirección, después el fichero. */
 beforeAll(async () => {
   env = await openTestEnv();
   host = new PluginHost(env.db, [whatsappPlugin]);
   await host.setup();
+  registerTransport(whatsappTransport);
   graph = createServer((request, response) => {
     if (request.headers.authorization !== "Bearer permiso") {
       response.writeHead(401).end();
+      return;
+    }
+    if (request.method === "POST" && request.url === "/NUMERO/messages") {
+      void readBody(request).then((body) => {
+        const sent = JSON.parse(body) as Record<string, unknown>;
+        graphSent.push(sent);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ messages: [{ id: `wamid.SALIDA${graphSent.length}` }] }));
+      });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/NUMERO/media") {
+      void readBody(request).then(() => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ id: "MEDIA-SUBIDA" }));
+      });
       return;
     }
     if (request.url === "/M-FOTO") {
@@ -67,6 +96,7 @@ beforeEach(async () => {
   await resetDb(env.db);
   await env.db.execute(sql`truncate table wa_events, wa_messages, wa_threads`);
   await resetMailbox();
+  graphSent = [];
   account = await createTestAccount(env);
   app = await buildApp({
     db: env.db,
@@ -80,6 +110,7 @@ beforeEach(async () => {
       WHATSAPP_VERIFY_TOKEN: "comprobar",
       WHATSAPP_APP_SECRET: SECRET,
       WHATSAPP_TOKEN: "permiso",
+      WHATSAPP_PHONE_NUMBER_ID: "NUMERO",
       WHATSAPP_GRAPH_URL: graphUrl,
     },
   });
@@ -182,5 +213,106 @@ describe("WhatsApp", () => {
     const [a, b, c, d] = rows.rows.map((row) => row.thread);
     expect(new Set([a, b, c]).size).toBe(1);
     expect(d).not.toBe(a);
+  });
+
+  it("lo que se contesta desde la aplicación sale por WhatsApp y queda en el hilo, no en Enviados", async () => {
+    const user = await createUser(env.db, {
+      email: "marta@c.test",
+      name: "Marta",
+      password: "contraseña-de-prueba",
+    });
+    const at = (minutes: number) => new Date(Date.now() - minutes * 60_000);
+    await post(
+      incoming(
+        BUSINESS,
+        [{ phone: PILAR, name: "Pilar Ferrer" }],
+        [text(PILAR, at(30), "¿Os llegó el parte?")],
+      ),
+    );
+    await post(
+      incoming(
+        BUSINESS,
+        [{ phone: JAVIER, name: "Javier" }],
+        [text(JAVIER, at(60 * 30), "Hola, de hace más de un día")],
+      ),
+    );
+    await converted(2);
+    await syncAll(env, account);
+    const [source] = (
+      await env.db.execute<{ id: string }>(
+        sql`select id from messages where from_address = ${contactAddress(PILAR)}`,
+      )
+    ).rows;
+    const queue = (to: string, bodyHtml: string, extra: object = {}) =>
+      env.db
+        .insert(outboundMessages)
+        .values({
+          accountId: account.id,
+          userId: user.id,
+          kind: "reply",
+          messageIdHeader: `<salida-${Math.random()}@c.test>`,
+          to: [{ name: "", address: to }],
+          subject: "Re: WhatsApp · Pilar Ferrer (+34 600 111 222)",
+          bodyHtml,
+          state: "queued",
+          sendAfter: new Date(Date.now() - 1000),
+          ...extra,
+        })
+        .returning();
+    const [reply] = await queue(
+      contactAddress(PILAR),
+      "<p>Sí, ya lo tenemos. Mañana te llamamos.</p><p>--<br>Marta</p><blockquote>¿Os llegó el parte?</blockquote>",
+      { sourceMessageId: source!.id },
+    );
+    const { sha256, size } = await env.rawStore.save(
+      Readable.from([Buffer.from("%PDF-1.4 carta")]),
+    );
+    await env.db.insert(outboundAttachments).values({
+      outboundId: reply!.id,
+      filename: "Carta.pdf",
+      contentType: "application/pdf",
+      size,
+      sha256,
+    });
+    const [late] = await queue(contactAddress(JAVIER), "<p>Perdona el retraso</p>");
+    const [mixed] = await queue(contactAddress(PILAR), "<p>Hola</p>", {
+      cc: [{ name: "", address: "luis@correo.test" }],
+    });
+
+    await syncAll(env, account);
+    const states = await env.db.execute<{ id: string; state: string; error: string | null }>(
+      sql`select id, state, error from outbound_messages`,
+    );
+    const stateOf = (id: string) => states.rows.find((row) => row.id === id)!;
+    expect(stateOf(reply!.id).state).toBe("sent");
+    expect(stateOf(late!.id)).toMatchObject({ state: "failed" });
+    expect(stateOf(late!.id).error).toContain("24 horas");
+    expect(stateOf(mixed!.id).error).toContain("un solo contacto");
+
+    // A Meta llega solo el texto nuevo, citando el mensaje, y la carta aparte.
+    expect(graphSent).toHaveLength(2);
+    expect(graphSent[0]).toMatchObject({
+      to: PILAR,
+      type: "text",
+      text: { body: "Sí, ya lo tenemos. Mañana te llamamos." },
+    });
+    expect((graphSent[0]!.context as { message_id: string }).message_id).toMatch(/^wamid\./);
+    expect(graphSent[1]).toMatchObject({
+      to: PILAR,
+      type: "document",
+      document: { id: "MEDIA-SUBIDA", filename: "Carta.pdf" },
+    });
+
+    await syncAll(env, account);
+    const thread = await env.db.execute<{ path: string; from: string; thread: string }>(sql`
+      select f.path, m.from_address as from, m.thread_id as thread
+        from messages m join folder_messages fm on fm.message_id = m.id join folders f on f.id = fm.folder_id
+       where m.subject like 'WhatsApp · Pilar%' order by m.internal_date, m.id`);
+    expect(thread.rows.map((row) => [row.path, row.from])).toEqual([
+      ["WhatsApp", contactAddress(PILAR)],
+      ["WhatsApp", account.email],
+      ["WhatsApp", account.email],
+    ]);
+    expect(new Set(thread.rows.map((row) => row.thread)).size).toBe(1);
   });
 });

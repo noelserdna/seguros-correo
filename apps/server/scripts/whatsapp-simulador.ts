@@ -7,6 +7,8 @@
  *
  * El servidor tiene que estar en marcha con el módulo `whatsapp` y, en su `.env`,
  * WHATSAPP_GRAPH_URL=http://127.0.0.1:3098 y el mismo WHATSAPP_APP_SECRET que lee este script.
+ * Al terminar sigue haciendo de Meta (para contestar desde la aplicación) hasta Ctrl+C;
+ * con --salir, termina en cuanto los avisos están guardados.
  */
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
@@ -96,9 +98,47 @@ const FILES: Record<string, { mime: string; content: Buffer }> = {
 };
 
 // La API de adjuntos de Meta: primero da una dirección, después el fichero (las dos con permiso).
+const NAMES: Record<string, string> = {};
 const graph = createServer((request, response) => {
   if (request.headers.authorization !== `Bearer ${token}`) {
     response.writeHead(401).end();
+    return;
+  }
+  // Lo que se contesta desde la aplicación: se acepta y, al poco, el cliente responde.
+  if (request.method === "POST" && /\/messages$/.test(request.url ?? "")) {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      const sent = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+        to: string;
+        type: string;
+        text?: { body: string };
+      };
+      const id = `wamid.SIM${Date.now().toString(36).toUpperCase()}`;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ messages: [{ id }] }));
+      console.log(`← la aplicación envía a +${sent.to} (${sent.type}): ${sent.text?.body ?? ""}`);
+      if (sent.type === "text") {
+        setTimeout(() => {
+          void send(
+            `+${sent.to} contesta`,
+            incoming(
+              BUSINESS,
+              [{ phone: sent.to, name: NAMES[sent.to] ?? "" }],
+              [text(sent.to, new Date(), "Perfecto, muchas gracias.")],
+            ),
+          );
+        }, 4000);
+      }
+    });
+    return;
+  }
+  if (request.method === "POST" && /\/media$/.test(request.url ?? "")) {
+    request.resume();
+    request.on("end", () => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ id: `MEDIA-${Date.now()}` }));
+    });
     return;
   }
   const [, first, second] = (request.url ?? "").split("/");
@@ -121,6 +161,8 @@ const PILAR = { phone: "34600111222", name: "Pilar Ferrer" };
 const OSCAR = { phone: "34600555666", name: "Óscar Biel" };
 const UNKNOWN = { phone: "34611222333", name: "" };
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000);
+NAMES[PILAR.phone] = PILAR.name;
+NAMES[OSCAR.phone] = OSCAR.name;
 
 const send = async (label: string, payload: object) => {
   const body = JSON.stringify(payload);
@@ -259,5 +301,11 @@ console.log(
     ? `Quedan avisos sin guardar: ${failed.rows[0].error}`
     : "Todo guardado como correo en la carpeta WhatsApp.",
 );
-graph.close();
-await runtime.close();
+if (process.argv.includes("--salir")) {
+  graph.close();
+  await runtime.close();
+} else {
+  console.log(
+    "Sigue haciendo de Meta: contesta a un WhatsApp desde la aplicación y el cliente responderá. Ctrl+C para parar.",
+  );
+}

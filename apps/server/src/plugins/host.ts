@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { Db } from "../db/client.ts";
 import { eventCursors, events } from "../db/schema.ts";
 import type { RouteOptions } from "../http/app.ts";
+import type { OutboundTransport } from "../outbound/transports.ts";
 import type { RawStore } from "../storage/raw-store.ts";
 import type { Config } from "../config.ts";
 
@@ -24,6 +25,8 @@ export type ServerPlugin = {
   routes?: FastifyPluginAsync<RouteOptions>;
   /** Recibe cada evento una vez, en orden. Puede recibirlo de nuevo si falló a medias. */
   onEvent?: (event: MailEvent, db: Db) => Promise<void>;
+  /** Otra vía de entrega: el módulo se queda con los envíos que reclama (p. ej. a WhatsApp). */
+  transport?: OutboundTransport;
   /** Trabajo propio en segundo plano (una cola, un temporizador). Se para al cerrar. */
   start?: (services: PluginServices) => void;
   stop?: () => Promise<void> | void;

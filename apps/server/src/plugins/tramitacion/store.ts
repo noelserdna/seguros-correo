@@ -120,6 +120,7 @@ export type TaskRow = {
   waitingContactId: string | null;
   waitingContactName: string | null;
   waitingContactEmail: string | null;
+  waitingContactPhone: string | null;
   waitingClient: boolean;
   waitingSince: Day | null;
   chaseAt: Day | null;
@@ -139,7 +140,7 @@ const taskColumns = sql`t.id, t.case_id as "caseId", t.phase_id as "phaseId", t.
   t.description, t.status, t.assignee_id as "assigneeId",
   (select u.name from users u where u.id = t.assignee_id) as "assigneeName",
   t.waits_on_role as "waitsOnRole", t.waiting_contact_id as "waitingContactId",
-  c.name as "waitingContactName", c.email as "waitingContactEmail", t.waiting_client as "waitingClient",
+  c.name as "waitingContactName", c.email as "waitingContactEmail", c.phone as "waitingContactPhone", t.waiting_client as "waitingClient",
   to_char(t.waiting_since, 'YYYY-MM-DD') as "waitingSince", to_char(t.chase_at, 'YYYY-MM-DD') as "chaseAt",
   t.chase_days as "chaseDays", t.chase_count as "chaseCount", t.due_anchor as "dueAnchor",
   t.due_days as "dueDays", t.due_unit as "dueUnit", to_char(t.due_override, 'YYYY-MM-DD') as "dueOverride",
@@ -214,4 +215,23 @@ export function summarizeCase(
     today,
   });
   return { ...summary, taskRows: new Map(data.tasks.map((task) => [task.id, task])) };
+}
+
+/** Solo dígitos, con el prefijo de España si es un número nacional de 9 cifras. */
+export const phoneDigits = (phone: string | null | undefined): string => {
+  const digits = (phone ?? "").replace(/\D/g, "").replace(/^00/, "");
+  return digits.length === 9 ? `34${digits}` : digits;
+};
+
+/**
+ * El remitente es el tercero esperado: por su correo o, si escribe por WhatsApp (dirección
+ * «<teléfono>@whatsapp.invalid»), por el teléfono que tiene en el directorio.
+ */
+export function isFrom(task: TaskRow, fromAddress: string): boolean {
+  const from = fromAddress.toLowerCase();
+  if (task.waitingContactEmail && task.waitingContactEmail.toLowerCase() === from) return true;
+  const whatsapp = /^(\d+)@whatsapp\.invalid$/.exec(from);
+  return Boolean(
+    whatsapp && task.waitingContactPhone && phoneDigits(task.waitingContactPhone) === whatsapp[1],
+  );
 }

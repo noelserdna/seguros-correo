@@ -2,6 +2,7 @@
  * Módulo de WhatsApp: los mensajes del número de empresa se guardan como correos en una
  * carpeta del buzón, un hilo por contacto, para que todo esté en un solo sitio y siga el
  * mismo camino que el correo (expedientes, lectura de adjuntos, búsqueda, tramitación).
+ * Lo que se contesta desde la aplicación a un contacto de WhatsApp sale por WhatsApp.
  *
  * Meta avisa en `/api/plugins/whatsapp/webhook`. Cada aviso se guarda tal cual, firmado, y
  * después se convierte: así no se pierde nada aunque el buzón no responda en ese momento.
@@ -14,8 +15,11 @@ import type { Db } from "../../db/client.ts";
 import { HttpError, requireSession, type AppDeps } from "../../http/app.ts";
 import { imapClient, type Account } from "../../imap/connection.ts";
 import type { ServerPlugin } from "../host.ts";
-import { buildMail, mailIdOf } from "./mail.ts";
+import { downloadMedia } from "./graph.ts";
 import { messagesOf, validSignature, type WaMessage } from "./meta.ts";
+import { phoneOf, whatsappTransport } from "./send.ts";
+import { setSettings, settingsFrom, type Settings } from "./settings.ts";
+import { appendToThread, ensureFolder, unseen, windowOf, type WaFile } from "./thread.ts";
 
 const MAX_ATTEMPTS = 5;
 
@@ -59,115 +63,63 @@ async function setup(db: Db): Promise<void> {
     )`);
 }
 
-type Settings = {
-  mailbox: string | undefined;
-  folder: string;
-  verifyToken: string | undefined;
-  appSecret: string | undefined;
-  token: string | undefined;
-  graphUrl: string;
-};
-
-function settingsOf(context: AppDeps): Settings {
-  const config = context.config;
-  return {
-    mailbox: config?.WHATSAPP_MAILBOX,
-    folder: config?.WHATSAPP_FOLDER ?? "WhatsApp",
-    verifyToken: config?.WHATSAPP_VERIFY_TOKEN,
-    appSecret: config?.WHATSAPP_APP_SECRET,
-    token: config?.WHATSAPP_TOKEN,
-    graphUrl: (config?.WHATSAPP_GRAPH_URL ?? "https://graph.facebook.com/v21.0").replace(/\/$/, ""),
-  };
+/** Las columnas vienen con su nombre de la base; el cliente IMAP las quiere como en el esquema. */
+function asAccount(row: Record<string, unknown>): Account {
+  const camel = Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [
+      key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()),
+      value,
+    ]),
+  );
+  return camel as unknown as Account;
 }
 
-/** Descarga una foto o documento de Meta: primero su dirección, después el fichero. */
-async function download(settings: Settings, mediaId: string): Promise<Buffer> {
-  if (!settings.token) throw new Error("Falta WHATSAPP_TOKEN para descargar adjuntos.");
-  const headers = { authorization: `Bearer ${settings.token}` };
-  const info = await fetch(`${settings.graphUrl}/${encodeURIComponent(mediaId)}`, { headers });
-  if (!info.ok) throw new Error(`Meta no da el adjunto ${mediaId} (${info.status}).`);
-  const { url } = (await info.json()) as { url?: string };
-  if (!url) throw new Error(`Meta no da la dirección del adjunto ${mediaId}.`);
-  const file = await fetch(url, { headers });
-  if (!file.ok)
-    throw new Error(`No se ha podido descargar el adjunto ${mediaId} (${file.status}).`);
-  return Buffer.from(await file.arrayBuffer());
+async function mailboxOf(db: Db, settings: Settings): Promise<Account> {
+  if (!settings.mailbox) {
+    throw new Error("Falta WHATSAPP_MAILBOX: el buzón donde se guardan los mensajes.");
+  }
+  const [row] = (
+    await db.execute<Record<string, unknown>>(
+      sql`select * from accounts where lower(email) = lower(${settings.mailbox})`,
+    )
+  ).rows;
+  if (!row) throw new Error(`No hay ningún buzón ${settings.mailbox} dado de alta.`);
+  return asAccount(row);
 }
 
 /** Convierte en correos los avisos pendientes. Uno a la vez: el orden importa para los hilos. */
-function makeProcessor(context: AppDeps) {
+function makeProcessor(context: AppDeps, settings: Settings) {
   const { db } = context;
   let running: Promise<void> | null = null;
 
-  async function convert(account: Account, settings: Settings, messages: WaMessage[]) {
-    const fresh: WaMessage[] = [];
-    for (const message of messages) {
-      const seen = await db.execute(sql`select 1 from wa_messages where wamid = ${message.id}`);
-      if (seen.rows.length === 0) fresh.push(message);
-    }
+  async function convert(account: Account, messages: WaMessage[]) {
+    const fresh = await unseen(db, messages);
     if (fresh.length === 0) return;
     const client = imapClient(account, await resolveAuth(context, account));
     await client.connect();
     try {
-      const folders = await client.list();
-      if (!folders.some((folder) => folder.path === settings.folder)) {
-        await client.mailboxCreate(settings.folder);
-      }
+      await ensureFolder(client, settings.folder);
       for (const message of fresh) {
-        const thread = (
-          await db.execute<{ name: string | null; firstMailId: string; lastMailId: string }>(sql`
-            select name, first_mail_id as "firstMailId", last_mail_id as "lastMailId"
-              from wa_threads where account_id = ${account.id} and phone = ${message.phone}`)
-        ).rows[0];
-        const quoted = message.replyTo
-          ? (
-              await db.execute<{ mailId: string }>(
-                sql`select mail_id as "mailId" from wa_messages where wamid = ${message.replyTo}`,
-              )
-            ).rows[0]?.mailId
-          : undefined;
-        const inReplyTo = quoted ?? thread?.lastMailId ?? null;
-        const references = [
-          ...new Set([thread?.firstMailId, inReplyTo].filter((id): id is string => Boolean(id))),
-        ];
-        const name = message.name || thread?.name || null;
-        let file: { filename: string; content: Buffer; contentType: string } | null = null;
+        let file: WaFile | null = null;
         let text = message.text;
         if (message.media) {
           try {
             file = {
               filename: message.media.filename ?? "adjunto",
-              content: await download(settings, message.media.id),
+              content: await downloadMedia(settings, message.media.id),
               contentType: message.media.mime,
             };
           } catch (error) {
             text += `\n\n(No se ha podido traer el adjunto de WhatsApp: ${error instanceof Error ? error.message : String(error)})`;
           }
         }
-        const raw = await buildMail({
+        await appendToThread({
+          db,
+          client,
+          account,
+          folder: settings.folder,
           message: { ...message, text },
-          name,
-          office: { name: account.name, address: account.email },
-          inReplyTo,
-          references,
           file,
-        });
-        const seen = message.direction === "out" || message.history;
-        await client.append(settings.folder, raw, seen ? ["\\Seen"] : [], message.at);
-        const mailId = mailIdOf(message.id);
-        await db.transaction(async (tx) => {
-          await tx.execute(sql`
-            insert into wa_messages (wamid, account_id, phone, direction, kind, at, mail_id, raw)
-            values (${message.id}, ${account.id}, ${message.phone}, ${message.direction}, ${message.kind},
-                    ${message.at.toISOString()}::timestamptz, ${mailId}, ${JSON.stringify(message.raw)}::jsonb)
-            on conflict do nothing`);
-          await tx.execute(sql`
-            insert into wa_threads (account_id, phone, name, first_mail_id, last_mail_id, last_at)
-            values (${account.id}, ${message.phone}, ${name}, ${mailId}, ${mailId}, ${message.at.toISOString()}::timestamptz)
-            on conflict (account_id, phone) do update set
-              name = coalesce(excluded.name, wa_threads.name),
-              last_mail_id = case when excluded.last_at >= wa_threads.last_at then excluded.last_mail_id else wa_threads.last_mail_id end,
-              last_at = greatest(excluded.last_at, wa_threads.last_at)`);
         });
       }
     } finally {
@@ -178,7 +130,6 @@ function makeProcessor(context: AppDeps) {
   }
 
   async function drain() {
-    const settings = settingsOf(context);
     for (;;) {
       const pending = await db.execute<{ id: string; payload: unknown }>(sql`
         select id, payload from wa_events
@@ -187,17 +138,7 @@ function makeProcessor(context: AppDeps) {
       for (const event of pending.rows) {
         try {
           const messages = messagesOf(event.payload);
-          if (messages.length > 0) {
-            if (!settings.mailbox)
-              throw new Error("Falta WHATSAPP_MAILBOX: el buzón donde se guardan los mensajes.");
-            const [account] = (
-              await db.execute<Account>(
-                sql`select * from accounts where lower(email) = lower(${settings.mailbox})`,
-              )
-            ).rows;
-            if (!account) throw new Error(`No hay ningún buzón ${settings.mailbox} dado de alta.`);
-            await convert(normalizeAccount(account), settings, messages);
-          }
+          if (messages.length > 0) await convert(await mailboxOf(db, settings), messages);
           await db.execute(
             sql`update wa_events set processed_at = now(), error = null where id = ${event.id}`,
           );
@@ -221,23 +162,13 @@ function makeProcessor(context: AppDeps) {
   };
 }
 
-/** Las columnas vienen con su nombre de la base; el cliente IMAP las quiere como en el esquema. */
-function normalizeAccount(row: Record<string, unknown>): Account {
-  const camel = Object.fromEntries(
-    Object.entries(row).map(([key, value]) => [
-      key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()),
-      value,
-    ]),
-  );
-  return camel as unknown as Account;
-}
-
 const verifyQuery = z.object({
   "hub.mode": z.string().optional(),
   "hub.verify_token": z.string().optional(),
   "hub.challenge": z.string().optional(),
 });
 const labelsBody = z.object({ messageIds: z.array(z.uuid()).max(500) });
+const windowQuery = z.object({ address: z.string().min(3).max(320) });
 
 type RawRequest = FastifyRequest & { rawBody?: Buffer };
 
@@ -245,10 +176,13 @@ export const whatsappPlugin: ServerPlugin = {
   id: "whatsapp",
   name: "WhatsApp",
   description:
-    "Guarda los mensajes del WhatsApp de empresa como correos, un hilo por contacto, con sus fotos y documentos.",
+    "Guarda los mensajes del WhatsApp de empresa como correos, un hilo por contacto, con sus fotos y documentos, y permite contestar desde aquí.",
   setup,
+  transport: whatsappTransport,
   async routes(app, { context }) {
-    const processor = makeProcessor(context);
+    const settings = settingsFrom(context.config);
+    setSettings(settings);
+    const processor = makeProcessor(context, settings);
     // Los avisos que quedaran a medias en el último arranque.
     void processor.kick();
 
@@ -268,11 +202,10 @@ export const whatsappPlugin: ServerPlugin = {
     // Meta comprueba la dirección al darla de alta: hay que devolver su reto.
     app.get("/webhook", async (request, reply) => {
       const query = verifyQuery.parse(request.query);
-      const { verifyToken } = settingsOf(context);
       if (
-        !verifyToken ||
+        !settings.verifyToken ||
         query["hub.mode"] !== "subscribe" ||
-        query["hub.verify_token"] !== verifyToken
+        query["hub.verify_token"] !== settings.verifyToken
       ) {
         throw new HttpError(403, "forbidden", "La comprobación no coincide.");
       }
@@ -280,12 +213,15 @@ export const whatsappPlugin: ServerPlugin = {
     });
 
     app.post("/webhook", async (request, reply) => {
-      const { appSecret } = settingsOf(context);
       const body = (request as RawRequest).rawBody ?? Buffer.alloc(0);
       const signature = request.headers["x-hub-signature-256"];
       if (
-        !appSecret ||
-        !validSignature(body, typeof signature === "string" ? signature : undefined, appSecret)
+        !settings.appSecret ||
+        !validSignature(
+          body,
+          typeof signature === "string" ? signature : undefined,
+          settings.appSecret,
+        )
       ) {
         throw new HttpError(401, "signature", "Firma no válida.");
       }
@@ -297,17 +233,31 @@ export const whatsappPlugin: ServerPlugin = {
       return reply.status(200).send({ ok: true });
     });
 
+    // Para el redactor: si a esta dirección se le puede escribir ahora y hasta cuándo.
+    app.get("/window", async (request) => {
+      requireSession(request);
+      const { address } = windowQuery.parse(request.query);
+      const account = await mailboxOf(context.db, settings).catch(() => null);
+      if (!account) return { open: false, until: null, name: null, ready: false };
+      const window = await windowOf(context.db, account.id, phoneOf(address));
+      return {
+        ...window,
+        ready: Boolean(settings.token && settings.phoneNumberId),
+      };
+    });
+
     // Estado para Configuración: qué falta, a dónde avisa Meta y cuánto ha llegado.
     app.get("/status", async (request) => {
       requireSession(request);
-      const settings = settingsOf(context);
-      const base = (
-        context.config?.PUBLIC_URL ?? `http://127.0.0.1:${context.config?.PORT ?? 3000}`
-      ).replace(/\/$/, "");
+      const config = context.config;
+      const base = (config?.PUBLIC_URL ?? `http://127.0.0.1:${config?.PORT ?? 3000}`).replace(
+        /\/$/,
+        "",
+      );
       const account = settings.mailbox
         ? (
             await context.db.execute<{ id: string; name: string }>(sql`
-            select id, name from accounts where lower(email) = lower(${settings.mailbox})`)
+              select id, name from accounts where lower(email) = lower(${settings.mailbox})`)
           ).rows[0]
         : undefined;
       const counts = (
@@ -338,6 +288,7 @@ export const whatsappPlugin: ServerPlugin = {
         verifyToken: Boolean(settings.verifyToken),
         appSecret: Boolean(settings.appSecret),
         token: Boolean(settings.token),
+        phoneNumberId: Boolean(settings.phoneNumberId),
         ...counts,
         ...events,
       };

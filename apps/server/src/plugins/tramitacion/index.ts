@@ -32,6 +32,7 @@ import {
 } from "./schema.ts";
 import {
   applyTemplate,
+  isFrom,
   loadPlans,
   loadTask,
   recordEvent,
@@ -1055,7 +1056,7 @@ export const tramitacionPlugin: ServerPlugin = {
         if (!accountIds.includes(row.accountId)) continue;
         const summary = summarizeCase(engineCase(row), plans.get(caseId)!, today);
         const awaited = [...summary.taskRows.values()].find(
-          (task) => task.status === "esperando" && task.waitingContactEmail?.toLowerCase() === from,
+          (task) => task.status === "esperando" && isFrom(task, from),
         );
         result.push({
           case: row,

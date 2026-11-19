@@ -47,6 +47,8 @@ const schema = z.object({
   WHATSAPP_APP_SECRET: z.string().optional(),
   /** Permiso para descargar fotos y documentos (y, más adelante, para responder). */
   WHATSAPP_TOKEN: z.string().optional(),
+  /** El número de empresa en la API de Meta: desde él salen las respuestas. */
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_GRAPH_URL: z.string().default("https://graph.facebook.com/v21.0"),
 
   /** Dirección con la que se abre la aplicación en el navegador. Por defecto, este equipo. */

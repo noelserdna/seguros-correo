@@ -12,6 +12,7 @@ import {
 import { errorMessage } from "../imap/connection.ts";
 import type { SyncContext } from "../sync/types.ts";
 import { buildRaw, mailOptions, smtpTransportFor, type Outbound } from "./mime.ts";
+import { transportFor, undeliverable } from "./transports.ts";
 
 /** Motivo de un envío rechazado, en palabras. Los casos conocidos llevan qué hacer. */
 export function sendFailureText(detail: string): string {
@@ -82,8 +83,11 @@ export async function runOutbox(ctx: SyncContext, auth: MailAuth): Promise<Outbo
       .where(eq(outboundAttachments.outboundId, id))
       .orderBy(asc(outboundAttachments.createdAt));
 
-  /** Tras la entrega: copia en Enviados, fuera de Borradores y marca en el original. */
-  const finish = async (outbound: Outbound) => {
+  /**
+   * Tras la entrega: copia en Enviados, fuera de Borradores y marca en el original. Otra
+   * vía de entrega deja su copia donde le corresponde y no va a Enviados.
+   */
+  const finish = async (outbound: Outbound, sentCopy = true) => {
     const options = mailOptions(
       account,
       outbound,
@@ -91,7 +95,7 @@ export async function runOutbox(ctx: SyncContext, auth: MailAuth): Promise<Outbo
       rawStore,
       outbound.sendAfter ?? new Date(),
     );
-    if (sentPath && !account.serverSavesSent) {
+    if (sentCopy && sentPath && !account.serverSavesSent) {
       const lock = await client.getMailboxLock(sentPath);
       let present: number[];
       try {
@@ -146,7 +150,7 @@ export async function runOutbox(ctx: SyncContext, auth: MailAuth): Promise<Outbo
     .where(and(mine, eq(outboundMessages.state, "sending")));
   for (const outbound of interrupted) {
     if (outbound.smtpAcceptedAt) {
-      await finish(outbound);
+      await finish(outbound, !transportFor(outbound));
     } else {
       // No se sabe si llegó a salir. Reenviarlo a ciegas podría entregarlo dos veces.
       await fail(
@@ -183,24 +187,53 @@ export async function runOutbox(ctx: SyncContext, auth: MailAuth): Promise<Outbo
       .returning();
     if (!claimed) break;
 
-    const transport = smtpTransportFor(account, auth);
-    try {
-      await transport.sendMail(
-        mailOptions(account, claimed, await filesOf(claimed.id), rawStore, claimed.sendAfter!),
+    const custom = transportFor(claimed);
+    if (custom) {
+      try {
+        await custom.deliver({
+          db,
+          client,
+          account,
+          rawStore,
+          outbound: claimed,
+          files: await filesOf(claimed.id),
+        });
+      } catch (error) {
+        await fail(ctx, claimed, error instanceof Error ? error.message : String(error));
+        result.failed++;
+        continue;
+      }
+    } else if (undeliverable(claimed).length > 0) {
+      const names = undeliverable(claimed)
+        .map((address) => address.address)
+        .join(", ");
+      await fail(
+        ctx,
+        claimed,
+        `No se puede enviar por correo a ${names}: no es una dirección de correo.`,
       );
-    } catch (error) {
-      await fail(ctx, claimed, sendFailureText(errorMessage(error)));
       result.failed++;
       continue;
-    } finally {
-      transport.close();
+    } else {
+      const transport = smtpTransportFor(account, auth);
+      try {
+        await transport.sendMail(
+          mailOptions(account, claimed, await filesOf(claimed.id), rawStore, claimed.sendAfter!),
+        );
+      } catch (error) {
+        await fail(ctx, claimed, sendFailureText(errorMessage(error)));
+        result.failed++;
+        continue;
+      } finally {
+        transport.close();
+      }
     }
     const [accepted] = await db
       .update(outboundMessages)
       .set({ smtpAcceptedAt: new Date() })
       .where(eq(outboundMessages.id, claimed.id))
       .returning();
-    await finish(accepted!);
+    await finish(accepted!, !custom);
   }
 
   // 3. Borradores que han cambiado: en el servidor queda una sola versión, la última.

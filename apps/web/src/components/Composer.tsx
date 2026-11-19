@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { api, ApiError, type Account, type Outbound, type OutboundFile } from "../api.ts";
 import { formatSize } from "../format.ts";
+import { plugins } from "../plugins/index.ts";
 import { formatRecipients, parseRecipients } from "../recipients.ts";
 import { Icon } from "./Icon.tsx";
 
@@ -476,6 +477,17 @@ function Editor({
         </Field>
       </div>
 
+      {plugins.map(
+        (plugin) =>
+          plugin.ComposeNotice && (
+            <plugin.ComposeNotice
+              key={plugin.id}
+              recipients={[...parsed.to.list, ...parsed.cc.list, ...parsed.bcc.list].map(
+                (address) => address.address,
+              )}
+            />
+          ),
+      )}
       <div className="flex h-9 shrink-0 items-center gap-0.5 border-b border-line-soft px-5">
         <FormatButton label="Negrita" command="bold">
           <b>N</b>

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { ExtractionWorker } from "./documents/worker.ts";
 import { buildApp } from "./http/app.ts";
 import { expedientesPlugin } from "./plugins/expedientes/index.ts";
+import { registerTransport } from "./outbound/transports.ts";
 import { orderPlugins, PluginHost, type ServerPlugin } from "./plugins/host.ts";
 import { ocrPlugin } from "./plugins/ocr/index.ts";
 import { tramitacionPlugin } from "./plugins/tramitacion/index.ts";
@@ -32,6 +33,8 @@ const plugins = orderPlugins(
     }),
 );
 console.log(`Módulos: ${plugins.map((plugin) => plugin.id).join(", ") || "ninguno"}`);
+// Las vías de entrega de los módulos activos (WhatsApp, por ejemplo).
+for (const plugin of plugins) if (plugin.transport) registerTransport(plugin.transport);
 const pluginHost = new PluginHost(runtime.db, plugins, runtime.rawStore, runtime.config);
 await pluginHost.setup();
 pluginHost.start();
