@@ -1,7 +1,8 @@
 /** Lo que la tramitación pone junto a un correo: el botón «Tramitar», su diálogo y el panel de contexto. */
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { apiGet, ApiError, type MessageDetail } from "../../api.ts";
+import { apiGet, apiPost, ApiError, type MessageDetail } from "../../api.ts";
+import { useOpenOfSender } from "../expedientes.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import {
   BASE,
@@ -59,6 +60,20 @@ export function OpenCaseDialog({
     queryFn: () =>
       apiGet<{ insurers: { id: string; name: string }[] }>("/plugins/expedientes/insurers"),
   });
+  const ofSender = useOpenOfSender(message.id);
+  const existing = ofSender.data?.cases ?? [];
+  const queryClient = useQueryClient();
+  const join = useMutation({
+    mutationFn: (caseId: string) =>
+      apiPost(`/plugins/expedientes/cases/${caseId}/messages`, { messageId: message.id }).then(
+        () => caseId,
+      ),
+    onSuccess: (caseId) => {
+      void queryClient.invalidateQueries({ queryKey: ["plugins"] });
+      onClose();
+      openCase(caseId);
+    },
+  });
   const active = (templates.data?.templates ?? []).filter((entry) => entry.active);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -115,6 +130,43 @@ export function OpenCaseDialog({
         <h2 id="abrir-expediente" className="m-0 text-base font-semibold">
           Abrir expediente desde este correo
         </h2>
+        {existing.length > 0 && (
+          <div
+            role="status"
+            className="flex flex-col gap-2 rounded-md border border-warn-line bg-warn px-3 py-2.5 text-[13px] text-warn-ink"
+          >
+            <span className="flex items-start gap-2">
+              <Icon name="triangle" size={14} className="mt-0.5 shrink-0 text-flag" />
+              <span>
+                <b className="font-semibold">{message.from.name || message.from.address}</b>{" "}
+                {existing.length === 1
+                  ? "ya tiene un expediente abierto."
+                  : `ya tiene ${existing.length} expedientes abiertos.`}{" "}
+                Si es el mismo caso, añade el correo en vez de abrir otro.
+              </span>
+            </span>
+            {existing.map((entry) => (
+              <span key={entry.id} className="flex items-center gap-2 pl-[22px]">
+                <span className="min-w-0 grow truncate text-ink">
+                  <b className="font-semibold">{entry.number}</b> · {entry.title}
+                </span>
+                <button
+                  type="button"
+                  disabled={join.isPending}
+                  onClick={() => join.mutate(entry.id)}
+                  className={buttonClass.small}
+                >
+                  Añadir a este
+                </button>
+              </span>
+            ))}
+            {join.isError && (
+              <span role="alert" className="pl-[22px] text-bad-ink">
+                {join.error instanceof ApiError ? join.error.message : "No se ha podido añadir."}
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-semibold">Tipo de tramitación *</span>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

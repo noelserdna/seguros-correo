@@ -737,6 +737,63 @@ export const expedientesPlugin: ServerPlugin = {
       };
     });
 
+    // Antes de abrir otro: los expedientes abiertos de quien escribe este correo. Se le reconoce
+    // por su dirección y, si el módulo de contactos está activo, por cualquiera de los canales de
+    // su ficha y por los expedientes en que es el cliente.
+    app.get("/open-of-sender/:id", async (request) => {
+      const { user } = requireSession(request);
+      const { id } = idParams.parse(request.params);
+      const message = await loadMessage(user.id, id);
+      const accountIds = await accessibleAccountIds(db, user.id);
+      const address = (message.fromAddress ?? "").toLowerCase();
+      const own = await db.execute(sql`select 1 from accounts where lower(email) = ${address}`);
+      if (!address || own.rows.length > 0 || accountIds.length === 0) return { cases: [] };
+      const contacts = await db.execute<{ ok: boolean }>(
+        sql`select to_regclass('ct_channels') is not null as ok`,
+      );
+      const withContacts = contacts.rows[0]?.ok === true;
+      // Un tercero con ficha (aseguradora, perito, taller…) escribe en muchos expedientes:
+      // avisar con cada correo suyo no ayuda. El aviso es para el cliente o para un desconocido.
+      if (withContacts) {
+        const known = await db.execute<{ client: boolean }>(sql`
+          select exists (select 1 from ct_roles r where r.contact_id = ch.contact_id and r.role = 'cliente')
+                 or not exists (select 1 from ct_roles r where r.contact_id = ch.contact_id) as client
+            from ct_channels ch
+           where (ch.kind = 'email' and ch.value = ${address})
+              or (ch.kind = 'phone' and ch.value || '@whatsapp.invalid' = ${address})
+           limit 1`);
+        if (known.rows[0] && !known.rows[0].client) return { cases: [] };
+      }
+      // Todas las direcciones de la misma persona: la suya y, con la agenda, las de su ficha.
+      const addresses = withContacts
+        ? sql`(select ${address} union
+               select case when ch.kind = 'email' then ch.value else ch.value || '@whatsapp.invalid' end
+                 from ct_channels ch
+                where ch.contact_id = (select c2.contact_id from ct_channels c2
+                                        where (c2.kind = 'email' and c2.value = ${address})
+                                           or (c2.kind = 'phone' and c2.value || '@whatsapp.invalid' = ${address})
+                                        limit 1))`
+        : sql`(select ${address})`;
+      const clientOf = withContacts
+        ? sql`or exists (select 1 from ct_links l join ct_channels ch on ch.contact_id = l.contact_id
+                          where l.target_kind = 'case' and l.target_id = c.id and l.role = 'cliente'
+                            and ((ch.kind = 'email' and ch.value = ${address})
+                              or (ch.kind = 'phone' and ch.value || '@whatsapp.invalid' = ${address})))`
+        : sql``;
+      const rows = await db.execute(sql`
+        select ${caseColumns},
+               (select max(m.internal_date) from exp_case_messages cm join messages m on m.id = cm.message_id
+                 where cm.case_id = c.id) as "lastMessageAt"
+          from exp_cases c
+         where c.account_id in (${uuids(accountIds)}) and c.status = 'abierto'
+           and not exists (select 1 from exp_case_messages x where x.case_id = c.id and x.message_id = ${id})
+           and (exists (select 1 from exp_case_messages cm join messages m on m.id = cm.message_id
+                         where cm.case_id = c.id and lower(m.from_address) in ${addresses})
+                ${clientOf})
+         order by "lastMessageAt" desc nulls last limit 5`);
+      return { cases: rows.rows };
+    });
+
     // Etiquetas para la lista: qué correos de los pedidos están en algún expediente.
     app.post("/labels", async (request) => {
       const { user } = requireSession(request);

@@ -341,6 +341,17 @@ function Catalogs({ isAdmin }: { isAdmin: boolean }) {
 }
 
 /** Menú de la barra: en qué expedientes está el correo, y añadirlo a otro o a uno nuevo. */
+/**
+ * Expedientes abiertos de quien escribe este correo (por su dirección o, con la agenda, por su
+ * ficha). Sirve para no abrir otro expediente si el caso ya existe.
+ */
+export function useOpenOfSender(messageId: string) {
+  return useQuery({
+    queryKey: [...KEY, "open-of-sender", messageId],
+    queryFn: () => apiGet<{ cases: Case[] }>(`${BASE}/open-of-sender/${messageId}`),
+  });
+}
+
 function CaseMenu({
   message,
   current,
@@ -355,7 +366,9 @@ function CaseMenu({
   const box = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState("");
   const all = useAllCases();
+  const ofSender = useOpenOfSender(message.id);
   const inside = new Set(current.map((entry) => entry.id));
+  const suggested = (ofSender.data?.cases ?? []).filter((entry) => !inside.has(entry.id));
   const text = filter.trim().toLowerCase();
   const others = (all.data?.cases ?? []).filter(
     (entry) =>
@@ -414,6 +427,23 @@ function CaseMenu({
         </>
       )}
 
+      {suggested.length > 0 && !filter && (
+        <>
+          <div className={heading}>Abiertos de quien escribe</div>
+          {suggested.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => onAsk({ kind: "add", target: entry, messageId: message.id, subject })}
+              className="flex flex-col rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-ink hover:bg-accent-soft"
+            >
+              <span className="font-semibold">{entry.number}</span>
+              <span className="truncate text-xs text-ink-2">{entry.title}</span>
+            </button>
+          ))}
+          <div className="my-1 h-px bg-line-soft" />
+        </>
+      )}
       <div className={heading}>Añadir a un expediente</div>
       <input
         type="search"

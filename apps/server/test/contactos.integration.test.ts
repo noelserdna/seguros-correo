@@ -287,6 +287,44 @@ describe("contactos", () => {
       contacts: { openCases: number }[];
     }>();
     expect(list.contacts[0]!.openCases).toBe(1);
+
+    // Otro correo del cliente: antes de abrir otro expediente, se avisa del que ya tiene.
+    // De un tercero con ficha (la aseguradora escribe en muchos) no se avisa.
+    await create({
+      kind: "empresa",
+      name: "Mutua del Ebro",
+      roles: ["aseguradora"],
+      channels: [{ kind: "email", value: "siniestros@mutua.test" }],
+    });
+    await appendMail(outlook, {
+      from: "Óscar Biel <oscar@biel.test>",
+      subject: "Otro golpe",
+      text: "Hola de nuevo.",
+    });
+    await appendMail(outlook, {
+      from: "Mutua del Ebro <siniestros@mutua.test>",
+      subject: "Alta de siniestro",
+      text: "Alta.",
+    });
+    await syncAll(env, account);
+    const already = (
+      await call("GET", `/api/plugins/expedientes/open-of-sender/${await idOf("Otro golpe")}`)
+    ).json<{ cases: { id: string }[] }>().cases;
+    expect(already.map((entry) => entry.id)).toEqual([kase.id]);
+    // La mutua no ha escrito en el expediente, pero aunque lo hubiera hecho no avisaría.
+    await call("POST", `/api/plugins/expedientes/cases/${kase.id}/messages`, {
+      messageId: await idOf("Alta de siniestro"),
+    });
+    await appendMail(outlook, {
+      from: "Mutua del Ebro <siniestros@mutua.test>",
+      subject: "Otra alta",
+      text: "Alta.",
+    });
+    await syncAll(env, account);
+    const insurer = (
+      await call("GET", `/api/plugins/expedientes/open-of-sender/${await idOf("Otra alta")}`)
+    ).json<{ cases: unknown[] }>().cases;
+    expect(insurer).toEqual([]);
   });
 
   it("el directorio antiguo de la tramitación pasa a la agenda con los mismos identificadores", async () => {
