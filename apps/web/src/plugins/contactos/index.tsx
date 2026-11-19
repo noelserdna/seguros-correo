@@ -120,6 +120,7 @@ function SenderSection({ message }: { message: MessageDetail }) {
         )}
         {picking && (
           <ContactPicker
+            inline
             onClose={() => setPicking(false)}
             onPick={(target) => {
               setPicking(false);

@@ -8,7 +8,10 @@ export function ContactPicker({
   onPick,
   onCreate,
   onClose,
+  inline = false,
 }: {
+  /** En una columna estrecha (el panel de contexto) va en su sitio y a todo el ancho. */
+  inline?: boolean;
   placeholder?: string;
   onPick: (contact: ContactRow) => void;
   onCreate?: (name: string) => void;
@@ -23,7 +26,7 @@ export function ContactPicker({
       onKeyDown={(event) => {
         if (event.key === "Escape") onClose();
       }}
-      className="absolute top-full right-0 z-30 mt-1 flex w-[340px] flex-col gap-1.5 rounded-lg border border-line-strong bg-panel p-2.5 text-left text-[13px] shadow-[0_8px_24px_rgba(27,35,48,0.16)]"
+      className={`${inline ? "w-full" : "absolute top-full right-0 z-30 mt-1 w-[340px]"} flex flex-col gap-1.5 rounded-lg border border-line-strong bg-panel p-2.5 text-left text-[13px] shadow-[0_8px_24px_rgba(27,35,48,0.16)]`}
     >
       <input
         autoFocus
