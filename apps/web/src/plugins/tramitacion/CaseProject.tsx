@@ -1156,8 +1156,9 @@ export function CaseProject({ caseId, userId }: { caseId: string; userId: string
   const [tab, setTab] = useState<"plan" | "intervinientes" | "historial">("plan");
   const [filter, setFilter] = useState<Filter>("pendientes");
   const [closing, setClosing] = useState(false);
-  const url = useUrlState();
-  const [reading, setReading] = useState<string | null>(url.messageId);
+  // El correo abierto va en la dirección: así el panel de contexto sabe cuál es.
+  const reading = useUrlState().messageId;
+  const setReading = (messageId: string | null) => navigate({ messageId }, { replace: true });
   const [validating, setValidating] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string> | null>(null);

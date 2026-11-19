@@ -302,6 +302,15 @@ function Mailbox({ session }: { session: Session }) {
   useEffect(() => {
     if (!url.messageId) setOpened(null);
   }, [url.messageId]);
+  // En la página de un módulo (Expedientes, Tramitación) el correo abierto lo pinta el módulo:
+  // el panel de contexto lo carga aquí para enseñar lo mismo que en la bandeja.
+  const pageMessage = useQuery({
+    queryKey: ["message", url.messageId],
+    queryFn: () => api.message(url.messageId!),
+    enabled: url.view === "plugin" && Boolean(url.messageId),
+  });
+  const contextMessage =
+    url.view === "plugin" ? (url.messageId ? (pageMessage.data ?? null) : null) : opened;
 
   // Esc cierra el panel de contexto.
   useEffect(() => {
@@ -459,7 +468,7 @@ function Mailbox({ session }: { session: Session }) {
 
         {contextOpen && (
           <ContextPanel
-            message={opened}
+            message={contextMessage}
             onClose={() => setContextOpen(false)}
             onSelect={select}
             overlay={!wide}

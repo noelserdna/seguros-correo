@@ -297,10 +297,10 @@ export function ContextPanel({
       aria-label="Contexto del correo"
       className={`flex flex-col bg-panel ${
         full
-          ? "absolute inset-0 z-10"
+          ? "absolute inset-0 z-30"
           : `w-80 shrink-0 border-l border-line ${
               overlay
-                ? "absolute top-0 right-10 bottom-0 z-10 shadow-[-8px_0_24px_rgba(27,35,48,0.10)]"
+                ? "absolute top-0 right-10 bottom-0 z-30 shadow-[-8px_0_24px_rgba(27,35,48,0.10)]"
                 : ""
             }`
       }`}
