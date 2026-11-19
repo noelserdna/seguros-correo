@@ -1417,6 +1417,12 @@ async function expedientes(): Promise<void> {
     await api("POST", `${E}/cases/${target.rows[0]!.id}/messages`, { messageId: bulletin });
     await api("PUT", `${E}/cases/${target.rows[0]!.id}/messages/${bulletin}`, { excluded: true });
 
+    // Todo lo de la demo se da por visto: lo que llegue después (un WhatsApp, un correo) será lo nuevo.
+    await db.execute(sql`
+      insert into exp_case_seen (user_id, case_id, seen_at)
+      select u.id, c.id, now() from users u cross join exp_cases c where c.account_id = ${account.id}
+      on conflict (user_id, case_id) do update set seen_at = now()`);
+
     console.log(
       `${opened} expedientes en tramitación, 2 sin plan y ${CASES.filter((c) => c.stage === 0).length} atestados sin tramitar todavía.`,
     );

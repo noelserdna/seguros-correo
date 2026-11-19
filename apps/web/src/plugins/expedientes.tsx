@@ -5,25 +5,40 @@ import { Confirm } from "../components/Confirm.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { CatalogList } from "../components/settings.tsx";
 import { displayName, formatListDate } from "../format.ts";
-// Se usa al pintar, no al cargar: la referencia circular con el índice no molesta.
-import { plugins } from "./index.ts";
 import type { WebPlugin } from "./types.ts";
+import { ExpedientesPage, openExpediente } from "./expedientes/Page.tsx";
 
 /**
  * Plugin de expedientes. Un expediente agrupa correos de cualquier buzón; un correo
  * puede estar en varios. Usa solo sus propias rutas y los huecos de la interfaz.
  */
 
-type Case = {
+export type Case = {
   id: string;
+  accountId?: string;
   number: string;
   title: string;
   insurerId?: string | null;
   insurerName?: string | null;
 };
 type Insurer = { id: string; name: string; caseCount: number };
-type CaseSummary = Case & { messageCount: number; lastMessageAt: string | null };
-type CaseMessage = {
+export type CaseSummary = Case & {
+  messageCount: number;
+  lastMessageAt: string | null;
+  status?: "abierto" | "cerrado";
+  closeReason?: string | null;
+  caseTypeId?: string | null;
+  typeName?: string | null;
+  ownerId?: string | null;
+  ownerName?: string | null;
+  lossDate?: string | null;
+  claimRef?: string | null;
+  createdAt?: string;
+  clientName?: string | null;
+  hasPlan?: boolean | null;
+  newCount?: number;
+};
+export type CaseMessage = {
   id: string;
   subject: string;
   fromName: string;
@@ -33,12 +48,19 @@ type CaseMessage = {
   /** Sigue en el expediente, pero no cuenta como contexto. */
   excluded: boolean;
   mailbox: string;
+  accountId?: string;
+  direction?: "in" | "out" | null;
+  snippet?: string | null;
+  files?: number;
+  whatsapp?: boolean;
+  role?: string | null;
+  isNew?: boolean;
 };
 type CaseWithMessages = { case: Case; messages: CaseMessage[] };
 
-const BASE = "/plugins/expedientes";
-const KEY = ["plugins", "expedientes"] as const;
-const HOW: Record<string, string> = {
+export const BASE = "/plugins/expedientes";
+export const KEY = ["plugins", "expedientes"] as const;
+export const HOW: Record<string, string> = {
   manual: "añadido a mano",
   thread: "por conversación",
   reference: "por el número en el asunto",
@@ -59,20 +81,20 @@ const useAllCases = (enabled = true) =>
     enabled,
   });
 
-const useInsurers = () =>
+export const useInsurers = () =>
   useQuery({
     queryKey: [...KEY, "insurers"],
     queryFn: () => apiGet<{ insurers: Insurer[] }>(`${BASE}/insurers`),
   });
 
 /** Lo que se va a hacer con un correo y un expediente, pendiente de confirmar. */
-type Pending =
+export type Pending =
   | { kind: "add"; target: Case; messageId: string; subject: string }
   | { kind: "remove"; target: Case; messageId: string; subject: string }
   | { kind: "create"; messageId: string; subject: string };
 
 /** Pide confirmación y ejecuta: añadir a un expediente, quitar de él o crear uno nuevo. */
-function useCaseChanges() {
+export function useCaseChanges() {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
@@ -483,6 +505,21 @@ function CaseMenu({
   );
 }
 
+/** Qué correos de los pedidos están en algún expediente, y en cuáles. */
+function useCaseLabels(messageIds: string[]): Map<string, string[]> {
+  const ids = useMemo(() => [...messageIds].sort(), [messageIds]);
+  const labels = useQuery({
+    queryKey: [...KEY, "labels", ids],
+    queryFn: () =>
+      apiPost<{ labels: Record<string, string[]> }>(`${BASE}/labels`, {
+        messageIds: ids.slice(0, 500),
+      }),
+    enabled: ids.length > 0,
+    placeholderData: (previous) => previous,
+  });
+  return useMemo(() => new Map(Object.entries(labels.data?.labels ?? {})), [labels.data]);
+}
+
 export const expedientesPlugin: WebPlugin = {
   id: "expedientes",
   rail: { icon: "case", label: "Expedientes" },
@@ -497,111 +534,21 @@ export const expedientesPlugin: WebPlugin = {
     },
   ],
 
-  View({ selectedId, onSelect }) {
-    const [openId, setOpenId] = useState<string | null>(null);
-    const cases = useAllCases();
-    const detail = useQuery({
-      queryKey: [...KEY, "case", openId],
-      queryFn: () => apiGet<CaseWithMessages>(`${BASE}/cases/${openId}`),
-      enabled: Boolean(openId),
-    });
-    const changes = useCaseChanges();
-    const list = cases.data?.cases ?? [];
-
-    return (
-      <section
-        aria-label="Expedientes"
-        className="flex w-full flex-col bg-panel md:w-[300px] md:shrink-0 md:border-r md:border-line lg:w-[360px]"
-      >
-        <div className="border-b border-line px-3 pt-3 pb-2.5">
-          <h2 className="m-0 text-[15px] font-semibold">Expedientes</h2>
-        </div>
-        <div className="min-h-0 grow overflow-y-auto">
-          {cases.isSuccess && list.length === 0 && (
-            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-              <Icon name="case" size={28} className="text-ink-2" />
-              <h3 className="m-0 text-sm font-semibold">Todavía no hay expedientes</h3>
-              <p className="m-0 text-xs leading-normal text-ink-2">
-                Abre un correo y pulsa «Expediente» en su barra para crear uno o añadirlo a uno que
-                ya exista.
-              </p>
-            </div>
-          )}
-          {list.map((item) => {
-            const open = item.id === openId;
-            return (
-              <div key={item.id} className="border-b border-line-soft">
-                <button
-                  type="button"
-                  aria-expanded={open}
-                  onClick={() => setOpenId(open ? null : item.id)}
-                  className={`flex w-full flex-col gap-0.5 border-0 border-l-[3px] px-3 py-2.5 text-left text-ink ${
-                    open
-                      ? "border-l-accent bg-accent-soft"
-                      : "border-l-transparent bg-panel hover:bg-ground"
-                  }`}
-                >
-                  <span className="flex gap-2">
-                    <span className="font-semibold">{item.number}</span>
-                    <span className="grow" />
-                    <span className="text-xs text-ink-2">
-                      {item.lastMessageAt ? formatListDate(item.lastMessageAt) : ""}
-                    </span>
-                  </span>
-                  <span className="truncate">{item.title}</span>
-                  <span className="text-xs text-ink-2">
-                    {item.messageCount === 1 ? "1 correo" : `${item.messageCount} correos`}
-                  </span>
-                </button>
-                {open && (
-                  <div className="flex flex-col gap-1.5 bg-ground px-3 py-2.5">
-                    <InsurerSelect item={item} />
-                    <ContextMeter caseId={item.id} />
-                    {plugins.map(
-                      (plugin) =>
-                        plugin.CaseSection && (
-                          <plugin.CaseSection key={plugin.id} caseId={item.id} />
-                        ),
-                    )}
-                    {(detail.data?.messages ?? []).map((entry) => (
-                      <MessageLine
-                        key={entry.id}
-                        entry={entry}
-                        caseId={item.id}
-                        current={entry.id === selectedId}
-                        onSelect={onSelect}
-                      />
-                    ))}
-                    {detail.isSuccess && detail.data.messages.length === 0 && (
-                      <p className="m-0 text-xs text-ink-2">
-                        Este expediente no tiene correos. Añádelos desde la barra de cualquier
-                        correo.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        {changes.dialog}
-      </section>
-    );
-  },
-
-  useLabels(messageIds) {
-    const ids = useMemo(() => [...messageIds].sort(), [messageIds]);
-    const labels = useQuery({
-      queryKey: [...KEY, "labels", ids],
-      queryFn: () =>
-        apiPost<{ labels: Record<string, string[]> }>(`${BASE}/labels`, {
-          messageIds: ids.slice(0, 500),
-        }),
-      enabled: ids.length > 0,
-      placeholderData: (previous) => previous,
-    });
-    return useMemo(() => new Map(Object.entries(labels.data?.labels ?? {})), [labels.data]);
-  },
+  Page: ExpedientesPage,
+  listFilters: [
+    {
+      id: "sin-expediente",
+      label: "Sin expediente",
+      useMatches(messageIds) {
+        const labels = useCaseLabels(messageIds);
+        return useMemo(
+          () => new Set(messageIds.filter((id) => !labels.has(id))),
+          [messageIds, labels],
+        );
+      },
+    },
+  ],
+  useLabels: useCaseLabels,
 
   ToolbarAction({ message }) {
     const [open, setOpen] = useState(false);
@@ -662,9 +609,13 @@ export const expedientesPlugin: WebPlugin = {
             <h3 className="m-0 text-[11px] font-semibold tracking-[0.04em] text-ink-2 uppercase">
               Expediente
             </h3>
-            <span className="font-semibold">
+            <button
+              type="button"
+              onClick={() => openExpediente(item.id, message.id)}
+              className="border-0 bg-transparent p-0 text-left font-semibold text-accent hover:text-accent-strong"
+            >
               {item.number} · {item.title}
-            </span>
+            </button>
             <InsurerSelect item={item} />
             <ContextMeter caseId={item.id} />
             {messages.map((entry) => (

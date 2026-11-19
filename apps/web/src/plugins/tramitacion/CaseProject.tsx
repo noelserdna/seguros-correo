@@ -1,7 +1,7 @@
 /** Ficha de un expediente en tramitación: fases, siguiente paso, tareas, esperas y correos. */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { apiGet, ApiError } from "../../api.ts";
+import { apiGet, apiPost, ApiError } from "../../api.ts";
 import { Confirm } from "../../components/Confirm.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { ReadingPane } from "../../components/ReadingPane.tsx";
@@ -1144,6 +1144,10 @@ export function CaseProject({ caseId, userId }: { caseId: string; userId: string
   const [focus, setFocus] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string> | null>(null);
   const view = caseQuery.data;
+  // Abrir la ficha cuenta como haber visto el expediente: sus correos dejan de ser nuevos.
+  useEffect(() => {
+    void apiPost(`/plugins/expedientes/cases/${caseId}/seen`, {}).catch(() => undefined);
+  }, [caseId]);
 
   // Las fases terminadas empiezan plegadas.
   useEffect(() => {

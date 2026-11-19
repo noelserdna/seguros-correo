@@ -1,5 +1,5 @@
 import type { WebPlugin } from "../types.ts";
-import { TramitacionCaseSection } from "./CaseSection.tsx";
+import { TramitacionCaseSection, useTramitacionLines } from "./CaseSection.tsx";
 import { TramitacionContext, TramitarAction } from "./FromMail.tsx";
 import { TRAMITACION_SETTINGS } from "./Settings.tsx";
 import { TramitacionPage } from "./Work.tsx";
@@ -13,4 +13,5 @@ export const tramitacionPlugin: WebPlugin = {
   ContextSection: TramitacionContext,
   settings: TRAMITACION_SETTINGS,
   CaseSection: TramitacionCaseSection,
+  useCaseLines: useTramitacionLines,
 };

@@ -2,10 +2,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { MessageItem } from "../api.ts";
 import { dateGroup, displayName, formatListDate, isFlagged, isUnread } from "../format.ts";
+import { plugins } from "../plugins/index.ts";
 import { processingState } from "../processing.ts";
 import { Icon } from "./Icon.tsx";
 
-type Filter = "all" | "unread" | "attachments" | "unprocessed";
+/** Los de serie, o el de un módulo («<módulo>:<filtro>», p. ej. «Sin expediente»). */
+type Filter = "all" | "unread" | "attachments" | "unprocessed" | `${string}:${string}`;
 type Row = { kind: "group"; title: string } | { kind: "message"; item: MessageItem };
 
 const GROUP_HEIGHT = 29;
@@ -133,19 +135,32 @@ export function MessageList({
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const scroller = useRef<HTMLDivElement>(null);
+  // Filtros de los módulos: cada uno dice qué correos de los cargados lo cumplen. La lista de
+  // módulos no cambia mientras la aplicación está abierta, así que las llamadas van siempre igual.
+  const ids = useMemo(() => items.map((item) => item.id), [items]);
+  const extra = plugins.flatMap((plugin) =>
+    (plugin.listFilters ?? []).map((entry) => ({
+      id: `${plugin.id}:${entry.id}` as Filter,
+      label: entry.label,
+      matches: entry.useMatches(ids),
+    })),
+  );
+  const pluginFilter = extra.find((entry) => entry.id === filter);
 
   const visible = useMemo(
     () =>
       items.filter((item) =>
-        filter === "unread"
-          ? isUnread(item.flags)
-          : filter === "attachments"
-            ? item.hasAttachments
-            : filter === "unprocessed"
-              ? processingState(item.processing).tone !== "ok"
-              : true,
+        pluginFilter
+          ? pluginFilter.matches.has(item.id)
+          : filter === "unread"
+            ? isUnread(item.flags)
+            : filter === "attachments"
+              ? item.hasAttachments
+              : filter === "unprocessed"
+                ? processingState(item.processing).tone !== "ok"
+                : true,
       ),
-    [items, filter],
+    [items, filter, pluginFilter],
   );
 
   const rows = useMemo(() => {
@@ -199,7 +214,7 @@ export function MessageList({
         </div>
         {!archived && (
           <div className="flex flex-wrap gap-1.5">
-            {FILTERS.map((option) => (
+            {[...FILTERS, ...extra].map((option) => (
               <button
                 key={option.id}
                 type="button"

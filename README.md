@@ -119,7 +119,7 @@ Librerías, todas de licencia permisiva: `unpdf` (MIT), `mammoth` (BSD-2), `exce
 
 De serie, la aplicación es un cliente de correo con contexto: correo, texto limpio, lectura de adjuntos, búsqueda y anotaciones. Lo demás son módulos opcionales, que se cargan con la variable `PLUGINS` (separados por comas):
 
-- `expedientes`: agrupar correos en expedientes, con sus datos y su contexto.
+- `expedientes`: agrupar correos en expedientes, con sus datos y su contexto. Tiene página propia para encontrar un caso al momento (por número, matrícula, cliente, teléfono o nº de siniestro) y leer su historia; marca lo que ha entrado desde la última vez que lo miraste, y en la bandeja añade el filtro «Sin expediente».
 - `contactos`: la agenda de la oficina, con una ficha por persona o empresa y todos sus correos y teléfonos. Así se reconoce a quien escribe, sea por correo o por WhatsApp. «Por revisar» propone fichas para quien escribe sin tenerla y posibles duplicados, por ejemplo un móvil de la firma que también escribe por WhatsApp; nada entra sin que una persona lo confirme. Con `expedientes`, cada expediente tiene su cliente. La agenda está preparada para pólizas e importación, que aún no están hechas.
 - `tramitacion`: llevar cada expediente como un caso, con fases, tareas de una plantilla, plazos (naturales o hábiles, desde el siniestro, la apertura o la tarea anterior), esperas a terceros con su reclamación y un semáforo de salud calculado por reglas. Los terceros vienen de la agenda. Necesita `expedientes` y `contactos`; al activarse por primera vez, su antiguo directorio pasa a la agenda. Trae de serie la plantilla «Siniestro de automóvil con atestado»; sus plazos legales son orientativos hasta confirmarlos.
 - `ocr`: reconocer el texto de fotos y documentos escaneados (Tesseract en español, dentro del propio servidor).
@@ -140,13 +140,17 @@ La interfaz muestra solo los módulos que el servidor tiene cargados. Un plugin 
 3. Una acción en la barra del correo abierto.
 4. Una sección en el panel de contexto.
 
+Además: una página a todo el ancho, apartados en Configuración, filtros propios en la lista de correos (como «Sin expediente»), un bloque y una línea de estado dentro de cada expediente, y un aviso en el redactor.
+
 El plugin de expedientes agrupa correos:
 
 - **De cualquier buzón.** Un expediente puede reunir correos de varios buzones, y un correo puede estar en varios expedientes.
 - **Por conversaciones.** Al crear un expediente desde un correo, o al añadir un correo a uno que ya existe, entra toda su conversación. Los correos que lleguen después a esa conversación, o con el número del expediente en el asunto, se añaden solos.
 - **Añadir y quitar a mano,** desde la barra de cualquier correo, con una confirmación en cada caso. Se añade o se quita la conversación entera; los correos no se borran ni se mueven.
 - **Excluir del contexto.** Un correo de un hilo puede no tener que ver con el expediente. No se saca: se marca como «fuera del contexto», sigue viéndose y se puede volver a incluir. El contexto es lo que se leerá para resumir o conversar sobre el expediente.
-- **Aseguradora.** Primer dato del expediente que no viene de un correo: se elige en un desplegable, de un catálogo que un administrador mantiene en Configuración.
+- **Datos del expediente:** aseguradora (de un catálogo que mantiene un administrador), tipo, nº de siniestro, fecha del siniestro y gestor. Se cambian en «Editar datos».
+- **La historia del caso,** de lo más reciente a lo más antiguo, con quién escribe y su papel (cliente, aseguradora, perito, nosotros) y si fue por WhatsApp. Lo que entró solo después de la última vez que lo abriste sale como **nuevo**.
+- **Antes de abrir otro,** si quien escribe ya tiene un expediente abierto, se avisa para añadir el correo a ese.
 - **Con los permisos de siempre.** Quien no tiene un buzón no ve los correos de ese buzón aunque estén en un expediente que sí ve.
 
 El siguiente paso previsto es poder conversar con cada expediente, incluidos los adjuntos de sus correos. Para eso existen ya el contexto (qué correos cuentan) y los metadatos de correo y de expediente.

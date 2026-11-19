@@ -67,6 +67,8 @@ afterAll(async () => {
 beforeEach(async () => {
   await resetDb(env.db);
   await env.db.execute(sql`truncate table ct_contacts, ct_dismissed cascade`);
+  // Vaciar la base borra también los cursores de eventos: se vuelven a crear.
+  await host.setup();
   await resetMailbox(ANA);
   outlook = await otherClient(ANA);
   account = await createTestAccount(env);
@@ -325,6 +327,62 @@ describe("contactos", () => {
       await call("GET", `/api/plugins/expedientes/open-of-sender/${await idOf("Otra alta")}`)
     ).json<{ cases: unknown[] }>().cases;
     expect(insurer).toEqual([]);
+  });
+
+  it("la lista de expedientes busca por cliente y teléfono, y cuenta lo nuevo hasta abrirlo", async () => {
+    const oscar = await create({
+      name: "Óscar Biel",
+      roles: ["cliente"],
+      channels: [
+        { kind: "email", value: "oscar@biel.test" },
+        { kind: "phone", value: "600 555 666" },
+      ],
+    });
+    await appendMail(outlook, {
+      from: "Óscar Biel <oscar@biel.test>",
+      subject: "Golpe 7781-JVM",
+      messageId: "<golpe-1@biel.test>",
+      text: "Atestado adjunto.",
+    });
+    await syncAll(env, account);
+    const kase = (
+      await call("POST", "/api/plugins/expedientes/cases", {
+        messageId: await idOf("Golpe 7781-JVM"),
+      })
+    ).json<{ case: { id: string; number: string } }>().case;
+    await call("PUT", `${C}/cases/${kase.id}/client`, { contactId: oscar.id });
+    const E = "/api/plugins/expedientes";
+    const find = async (q: string) =>
+      (await call("GET", `${E}/cases?q=${encodeURIComponent(q)}&status=todos`)).json<{
+        cases: { id: string; clientName: string | null; newCount: number }[];
+      }>().cases;
+    expect((await find("óscar")).map((entry) => entry.id)).toEqual([kase.id]);
+    expect((await find("600555666")).map((entry) => entry.id)).toEqual([kase.id]);
+    expect(await find("nadie-así")).toEqual([]);
+    expect((await find("7781"))[0]!.clientName).toBe("Óscar Biel");
+    // Se ve lo que había al crearlo: nada nuevo.
+    await call("POST", `${E}/cases/${kase.id}/seen`, {});
+    expect((await find("7781"))[0]!.newCount).toBe(0);
+    // Llega una respuesta a la conversación: entra sola y cuenta como nueva hasta abrirlo.
+    await appendMail(outlook, {
+      from: "Óscar Biel <oscar@biel.test>",
+      subject: "Re: Golpe 7781-JVM",
+      inReplyTo: "<golpe-1@biel.test>",
+      references: "<golpe-1@biel.test>",
+      text: "Os mando el DNI.",
+    });
+    await syncAll(env, account);
+    await host.drain();
+    expect((await find("7781"))[0]!.newCount).toBe(1);
+    const detail = (await call("GET", `${E}/cases/${kase.id}`)).json<{
+      messages: { subject: string; isNew: boolean; role: string | null }[];
+    }>().messages;
+    expect(detail.find((entry) => entry.subject === "Re: Golpe 7781-JVM")).toMatchObject({
+      isNew: true,
+      role: "cliente",
+    });
+    await call("POST", `${E}/cases/${kase.id}/seen`, {});
+    expect((await find("7781"))[0]!.newCount).toBe(0);
   });
 
   it("el directorio antiguo de la tramitación pasa a la agenda con los mismos identificadores", async () => {

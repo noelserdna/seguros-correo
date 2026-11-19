@@ -42,7 +42,7 @@ export const openContact = (id: string) =>
 const openCase = (id: string) =>
   plugins.some((plugin) => plugin.id === "tramitacion")
     ? navigate({ view: "plugin", pluginId: "tramitacion", sub: `exp:${id}` })
-    : navigate({ view: "plugin", pluginId: "expedientes", sub: null });
+    : navigate({ view: "plugin", pluginId: "expedientes", sub: `c:${id}`, messageId: null });
 
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   return (

@@ -56,7 +56,59 @@ type CaseMessage = {
   excluded: boolean;
   /** Buzón en el que está el correo: un expediente puede reunir correos de varios. */
   mailbox: string;
+  direction: "in" | "out" | null;
+  snippet: string | null;
+  files: number;
+  /** Llegó por WhatsApp (dirección «<teléfono>@whatsapp.invalid»). */
+  whatsapp: boolean;
+  /** Papel de quien escribe según la agenda (cliente, aseguradora…), si el módulo está activo. */
+  role: string | null;
+  /** Entró solo en el expediente después de la última vez que esta persona lo miró. */
+  isNew: boolean;
 };
+
+/** Cuándo miró cada persona cada expediente: lo que entró después cuenta como nuevo. */
+async function setupSeen(db: Db): Promise<void> {
+  const exists = await db.execute<{ ok: boolean }>(
+    sql`select to_regclass('exp_case_seen') is not null as ok`,
+  );
+  await db.execute(sql`
+    create table if not exists exp_case_seen (
+      user_id uuid not null,
+      case_id uuid not null references exp_cases(id) on delete cascade,
+      seen_at timestamptz not null default now(),
+      primary key (user_id, case_id)
+    )`);
+  // La primera vez, todo lo que ya había se da por visto: no se estrena con cientos de nuevos.
+  if (!exists.rows[0]?.ok) {
+    await db.execute(sql`
+      insert into exp_case_seen (user_id, case_id) select u.id, c.id from users u cross join exp_cases c
+      on conflict do nothing`);
+  }
+}
+
+/**
+ * Un correo del expediente es nuevo para una persona si entró solo (por su conversación o por
+ * un número) y recibido, después de la última vez que ella miró el expediente. Lo añadido a mano
+ * o como prueba ya lo decidió alguien.
+ */
+const isNewSql = (userId: string) => sql`(cm.how not in ('manual', 'prueba')
+  and coalesce(m.direction, 'in') <> 'out'
+  and cm.added_at > coalesce((select s.seen_at from exp_case_seen s
+                               where s.user_id = ${userId} and s.case_id = cm.case_id),
+                             (select c0.created_at + interval '1 minute' from exp_cases c0 where c0.id = cm.case_id)))`;
+
+/** El papel de quien escribe según la agenda, si el módulo de contactos está activo. */
+async function roleSql(db: Db) {
+  const ok = await db.execute<{ ok: boolean }>(
+    sql`select to_regclass('ct_channels') is not null as ok`,
+  );
+  if (!ok.rows[0]?.ok) return sql`null::text`;
+  return sql`(select r.role from ct_channels ch join ct_roles r on r.contact_id = ch.contact_id
+                where (ch.kind = 'email' and ch.value = lower(m.from_address))
+                   or (ch.kind = 'phone' and ch.value || '@whatsapp.invalid' = lower(m.from_address))
+                order by r.role = 'cliente' desc, r.role limit 1)`;
+}
 
 async function setup(db: Db): Promise<void> {
   // El módulo se llamó «demo» mientras fue una prueba: se conserva lo que hubiera con ese nombre.
@@ -147,6 +199,7 @@ async function setup(db: Db): Promise<void> {
       add column if not exists owner_id uuid references users(id) on delete set null,
       add column if not exists loss_date date,
       add column if not exists claim_ref text`);
+  await setupSeen(db);
 }
 
 /**
@@ -219,7 +272,7 @@ const uuids = (ids: string[]) =>
  * Correos del expediente. La copia de Enviados y la recibida de un mismo correo
  * (misma cabecera Message-ID) cuentan como uno: se enseña el añadido a mano si lo hay.
  */
-const messagesOfCase = async (db: Db, caseId: string, accountIds: string[]) =>
+const messagesOfCase = async (db: Db, caseId: string, accountIds: string[], userId?: string) =>
   accountIds.length === 0
     ? []
     : (
@@ -228,7 +281,13 @@ const messagesOfCase = async (db: Db, caseId: string, accountIds: string[]) =>
             select distinct on (coalesce(m.message_id_header, m.id::text))
                    m.id, m.subject, m.from_name as "fromName", m.from_address as "fromAddress",
                    m.internal_date as "internalDate", cm.how, cm.excluded, cm.added_at,
-                   a.email as "mailbox"
+                   a.email as "mailbox", m.account_id as "accountId", m.direction, m.snippet,
+                   (select count(*)::int from attachments x where x.message_id = m.id and not x.inline) as files,
+                   (lower(m.from_address) like '%@whatsapp.invalid'
+                     or exists (select 1 from message_addresses ma where ma.message_id = m.id
+                                  and lower(ma.address) like '%@whatsapp.invalid')) as whatsapp,
+                   ${await roleSql(db)} as role,
+                   ${userId ? isNewSql(userId) : sql`false`} as "isNew"
               from exp_case_messages cm
               join messages m on m.id = cm.message_id
               join accounts a on a.id = m.account_id
@@ -305,7 +364,13 @@ async function onEvent(event: MailEvent, db: Db): Promise<void> {
 const idParams = z.object({ id: z.uuid() });
 const createBody = z.object({ messageId: z.uuid() });
 const labelsBody = z.object({ messageIds: z.array(z.uuid()).max(500) });
-const listQuery = z.object({ accountId: z.uuid().optional() });
+const listQuery = z.object({
+  accountId: z.uuid().optional(),
+  q: z.string().trim().max(120).optional(),
+  status: z.enum(["abierto", "cerrado", "todos"]).optional(),
+  mine: z.enum(["0", "1"]).optional(),
+  noPlan: z.enum(["0", "1"]).optional(),
+});
 
 const memberParams = z.object({ id: z.uuid(), messageId: z.uuid() });
 const excludeBody = z.object({ excluded: z.boolean() });
@@ -645,23 +710,72 @@ export const expedientesPlugin: ServerPlugin = {
       return { ok: true };
     });
 
+    // La lista: con buscador (número, título, nº de siniestro, cliente, teléfono o quien escribe)
+    // y filtros. Sin parámetros, todos los expedientes de los buzones que se ven.
     app.get("/cases", async (request) => {
       const { user } = requireSession(request);
-      listQuery.parse(request.query);
+      const query = listQuery.parse(request.query);
       const accountIds = await accessibleAccountIds(db, user.id);
       if (accountIds.length === 0) return { cases: [] };
+      const tables = await db.execute<{ ct: boolean; tra: boolean }>(sql`
+        select to_regclass('ct_links') is not null as ct, to_regclass('tra_case_plans') is not null as tra`);
+      const { ct, tra } = tables.rows[0]!;
+      const text = query.q?.toLowerCase() ?? "";
+      const pattern = text ? `%${text.replace(/[%_\\]/g, "\\$&")}%` : null;
+      const digits = text.replace(/\D/g, "");
+      const client = ct
+        ? sql`(select co.name from ct_links l join ct_contacts co on co.id = l.contact_id
+                where l.target_kind = 'case' and l.target_id = c.id and l.role = 'cliente' limit 1)`
+        : sql`null::text`;
+      const searchClient =
+        ct && pattern
+          ? sql`or exists (select 1 from ct_links l join ct_contacts co on co.id = l.contact_id
+                            left join ct_channels ch on ch.contact_id = co.id
+                           where l.target_kind = 'case' and l.target_id = c.id
+                             and (lower(co.name) like ${pattern} or ch.value like ${pattern}
+                                  ${digits.length >= 6 ? sql`or ch.value like ${"%" + digits + "%"}` : sql``}))`
+          : sql``;
+      const search = pattern
+        ? sql`and (lower(c.number) like ${pattern} or lower(c.title) like ${pattern}
+                   or lower(coalesce(c.claim_ref, '')) like ${pattern}
+                   or exists (select 1 from exp_case_messages cm join messages m on m.id = cm.message_id
+                               where cm.case_id = c.id and (lower(m.from_name) like ${pattern}
+                                     or lower(m.from_address) like ${pattern}))
+                   ${searchClient})`
+        : sql``;
+      const status =
+        query.status && query.status !== "todos" ? sql`and c.status = ${query.status}` : sql``;
       const rows = await db.execute(sql`
-        select ${caseColumns},
+        select ${caseColumns}, ${client} as "clientName",
+               ${tra ? sql`exists (select 1 from tra_case_plans tp where tp.case_id = c.id)` : sql`null::boolean`} as "hasPlan",
                (select count(distinct coalesce(m.message_id_header, m.id::text))::int
                   from exp_case_messages cm join messages m on m.id = cm.message_id
                  where cm.case_id = c.id and m.account_id in (${uuids(accountIds)})) as "messageCount",
+               (select count(*)::int from exp_case_messages cm join messages m on m.id = cm.message_id
+                 where cm.case_id = c.id and m.account_id in (${uuids(accountIds)}) and ${isNewSql(user.id)}) as "newCount",
                (select max(m.internal_date) from exp_case_messages cm
                   join messages m on m.id = cm.message_id
                  where cm.case_id = c.id and m.account_id in (${uuids(accountIds)})) as "lastMessageAt"
           from exp_cases c
          where c.account_id in (${uuids(accountIds)})
-         order by "lastMessageAt" desc nulls last, c.created_at desc`);
+           ${status}
+           ${query.mine === "1" ? sql`and coalesce(c.owner_id, c.created_by) = ${user.id}` : sql``}
+           ${tra && query.noPlan === "1" ? sql`and not exists (select 1 from tra_case_plans tp where tp.case_id = c.id)` : sql``}
+           ${search}
+         order by "lastMessageAt" desc nulls last, c.created_at desc
+         limit 500`);
       return { cases: rows.rows };
+    });
+
+    // Quien abre el expediente ha visto lo que había: deja de contar como nuevo.
+    app.post("/cases/:id/seen", async (request) => {
+      const { user } = requireSession(request);
+      const { id } = idParams.parse(request.params);
+      await loadCase(user.id, id);
+      await db.execute(sql`
+        insert into exp_case_seen (user_id, case_id, seen_at) values (${user.id}, ${id}, now())
+        on conflict (user_id, case_id) do update set seen_at = now()`);
+      return { ok: true };
     });
 
     app.get("/cases/:id", async (request) => {
@@ -669,7 +783,7 @@ export const expedientesPlugin: ServerPlugin = {
       const { id } = idParams.parse(request.params);
       const row = await loadCase(user.id, id);
       const accountIds = await accessibleAccountIds(db, user.id);
-      return { case: row, messages: await messagesOfCase(db, id, accountIds) };
+      return { case: row, messages: await messagesOfCase(db, id, accountIds, user.id) };
     });
 
     // Cuánto ocupa el contexto del expediente: lo que leería quien resuma o responda sobre él.

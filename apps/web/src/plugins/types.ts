@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { MessageDetail } from "../api.ts";
 import type { IconName } from "../components/Icon.tsx";
 
@@ -32,7 +32,17 @@ export type WebPlugin = {
    * Bloque dentro de un expediente abierto en el módulo Expedientes (p. ej. su plan de
    * tramitación). Solo lo usan módulos que dependen de Expedientes.
    */
-  CaseSection?: ComponentType<{ caseId: string }>;
+  CaseSection?: ComponentType<{ caseId: string; wide?: boolean }>;
+  /**
+   * Una línea de estado por expediente para la lista de Expedientes (p. ej. salud y fase).
+   * Se llama una vez por pantalla y devuelve lo de todos los expedientes que conoce.
+   */
+  useCaseLines?: () => Map<string, ReactNode>;
+  /**
+   * Filtros propios en la lista de correos, junto a «Sin leer» o «Con adjuntos». Dicen qué
+   * correos de los cargados cumplen el filtro.
+   */
+  listFilters?: { id: string; label: string; useMatches: (messageIds: string[]) => Set<string> }[];
   /** Aviso en el redactor según los destinatarios (p. ej. «esto saldrá por WhatsApp»). */
   ComposeNotice?: ComponentType<{ recipients: string[] }>;
   /** Hueco 4: sección en el panel de contexto. */
