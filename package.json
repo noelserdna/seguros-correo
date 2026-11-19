@@ -27,6 +27,7 @@
     "reprocesar": "tsx apps/server/scripts/reprocesar.ts",
     "sembrar": "tsx apps/server/scripts/sembrar.ts",
     "demo": "tsx apps/server/scripts/demo.ts",
+    "whatsapp-simulador": "tsx apps/server/scripts/whatsapp-simulador.ts",
     "banco-ocr": "tsx --env-file-if-exists=.env apps/server/scripts/banco-ocr.ts"
   },
   "devDependencies": {

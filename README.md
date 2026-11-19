@@ -36,6 +36,7 @@ pnpm servidor          # interfaz y API en http://127.0.0.1:3000 + sincronizaci�
 pnpm web               # interfaz en modo desarrollo (puerto 5173, con el servidor en marcha)
 pnpm demo correos      # buzón «Siniestros (demo)» en Docker con 32 siniestros inventados, conectado
 pnpm demo expedientes  # con el servidor en marcha: abre y lleva sus expedientes (rehacer = volver a lanzar)
+pnpm whatsapp-simulador # hace de Meta en local: manda conversaciones de WhatsApp al módulo «whatsapp»
 pnpm dev:down          # parar el entorno (dev:reset borra también los datos)
 ```
 

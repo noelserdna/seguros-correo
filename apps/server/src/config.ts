@@ -35,6 +35,20 @@ const schema = z.object({
   VISION_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   VISION_MAX_PAGES: z.coerce.number().int().min(1).max(200).default(10),
 
+  /**
+   * Módulo `whatsapp`: los mensajes del número de empresa (API de WhatsApp Business de Meta,
+   * en coexistencia con la app) se guardan como correos en una carpeta de un buzón.
+   */
+  WHATSAPP_MAILBOX: z.string().optional(),
+  WHATSAPP_FOLDER: z.string().default("WhatsApp"),
+  /** Lo que Meta envía al comprobar la dirección de los avisos (lo eliges tú al darla de alta). */
+  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  /** Secreto de la aplicación de Meta: firma cada aviso. Sin él no se acepta ninguno. */
+  WHATSAPP_APP_SECRET: z.string().optional(),
+  /** Permiso para descargar fotos y documentos (y, más adelante, para responder). */
+  WHATSAPP_TOKEN: z.string().optional(),
+  WHATSAPP_GRAPH_URL: z.string().default("https://graph.facebook.com/v21.0"),
+
   /** Dirección con la que se abre la aplicación en el navegador. Por defecto, este equipo. */
   PUBLIC_URL: z.string().optional(),
   /** Acceso con cuenta de Google y de Microsoft 365. Sin estos valores, no se ofrece. */

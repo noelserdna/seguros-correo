@@ -7,6 +7,7 @@ import { orderPlugins, PluginHost, type ServerPlugin } from "./plugins/host.ts";
 import { ocrPlugin } from "./plugins/ocr/index.ts";
 import { tramitacionPlugin } from "./plugins/tramitacion/index.ts";
 import { visionPlugin } from "./plugins/vision/index.ts";
+import { whatsappPlugin } from "./plugins/whatsapp/index.ts";
 import { openRuntime } from "./runtime.ts";
 import { SyncService } from "./sync/service.ts";
 
@@ -18,6 +19,7 @@ const available: Record<string, ServerPlugin> = {
   ocr: ocrPlugin,
   tramitacion: tramitacionPlugin,
   vision: visionPlugin,
+  whatsapp: whatsappPlugin,
 };
 const plugins = orderPlugins(
   runtime.config.PLUGINS.split(",")
