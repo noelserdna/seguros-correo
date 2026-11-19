@@ -7,6 +7,7 @@ import { registerTransport } from "./outbound/transports.ts";
 import { orderPlugins, PluginHost, type ServerPlugin } from "./plugins/host.ts";
 import { ocrPlugin } from "./plugins/ocr/index.ts";
 import { tramitacionPlugin } from "./plugins/tramitacion/index.ts";
+import { contactosPlugin } from "./plugins/contactos/index.ts";
 import { visionPlugin } from "./plugins/vision/index.ts";
 import { whatsappPlugin } from "./plugins/whatsapp/index.ts";
 import { openRuntime } from "./runtime.ts";
@@ -19,6 +20,7 @@ const available: Record<string, ServerPlugin> = {
   expedientes: expedientesPlugin,
   ocr: ocrPlugin,
   tramitacion: tramitacionPlugin,
+  contactos: contactosPlugin,
   vision: visionPlugin,
   whatsapp: whatsappPlugin,
 };

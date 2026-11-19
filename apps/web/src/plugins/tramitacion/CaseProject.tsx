@@ -14,7 +14,7 @@ import {
   useApplyView,
   useCase,
   type CaseView,
-  type Contact,
+  searchContacts,
   type Task,
 } from "./api.ts";
 import { startChase } from "./actions.ts";
@@ -95,10 +95,7 @@ function WaitPopover({
       : undefined;
   const contacts = useQuery({
     queryKey: [...KEY, "contacts", q, role ?? ""],
-    queryFn: () =>
-      apiGet<{ contacts: Contact[] }>(
-        `${BASE}/contacts?${new URLSearchParams({ ...(q ? { q } : {}), ...(role && !q ? { role } : {}) })}`,
-      ),
+    queryFn: () => searchContacts(q, role && !q ? role : undefined),
   });
   const add = useMutation({
     mutationFn: () =>
@@ -126,7 +123,7 @@ function WaitPopover({
           autoFocus
           value={q}
           onChange={(event) => setQ(event.target.value)}
-          placeholder="Buscar en el directorio"
+          placeholder="Buscar en la agenda"
           className={fieldClass}
         />
       </label>
@@ -140,7 +137,7 @@ function WaitPopover({
           El cliente
         </button>
         <span className="bg-ground px-2.5 py-1 text-[11px] font-semibold text-ink-2">
-          DIRECTORIO{role && !q ? ` · ${roleLabel(role).toUpperCase()}` : ""}
+          AGENDA{role && !q ? ` · ${roleLabel(role).toUpperCase()}` : ""}
         </span>
         {contacts.data?.contacts.map((contact) => (
           <button
@@ -165,7 +162,7 @@ function WaitPopover({
             }}
             className="border-0 bg-panel px-2.5 py-1.5 text-left font-semibold text-accent hover:bg-ground"
           >
-            + Añadir al directorio
+            + Añadir a la agenda
           </button>
         ) : (
           <div className="flex flex-col gap-1.5 border-t border-line p-2">
@@ -1033,8 +1030,7 @@ function Parties({ view, change }: { view: CaseView; change: ReturnType<typeof u
   const [q, setQ] = useState("");
   const contacts = useQuery({
     queryKey: [...KEY, "contacts", q, ""],
-    queryFn: () =>
-      apiGet<{ contacts: Contact[] }>(`${BASE}/contacts${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+    queryFn: () => searchContacts(q),
     enabled: q.length > 0,
   });
   return (
@@ -1042,7 +1038,7 @@ function Parties({ view, change }: { view: CaseView; change: ReturnType<typeof u
       {view.parties.length === 0 && (
         <p className="m-0 text-xs text-ink-2">
           Todavía no hay intervinientes apuntados. Se añaden solos al registrar una espera a alguien
-          del directorio, o desde aquí.
+          de la agenda, o desde aquí.
         </p>
       )}
       {view.parties.map((party) => (
@@ -1059,7 +1055,7 @@ function Parties({ view, change }: { view: CaseView; change: ReturnType<typeof u
         </div>
       ))}
       <label className="flex flex-col gap-1 text-xs">
-        <span className="font-semibold">Añadir del directorio</span>
+        <span className="font-semibold">Añadir de la agenda</span>
         <input
           value={q}
           onChange={(event) => setQ(event.target.value)}

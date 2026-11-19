@@ -14,6 +14,7 @@ import type { Account } from "../src/imap/connection.ts";
 import { expedientesPlugin } from "../src/plugins/expedientes/index.ts";
 import { orderPlugins, PluginHost } from "../src/plugins/host.ts";
 import { addCalendarDays } from "../src/plugins/tramitacion/days.ts";
+import { contactosPlugin } from "../src/plugins/contactos/index.ts";
 import { tramitacionPlugin } from "../src/plugins/tramitacion/index.ts";
 import { todayInSpain } from "../src/plugins/tramitacion/store.ts";
 import {
@@ -135,7 +136,10 @@ const task = (view: View, key: string) => view.tasks.find((entry) => entry.key =
 
 beforeAll(async () => {
   env = await openTestEnv();
-  host = new PluginHost(env.db, orderPlugins([tramitacionPlugin, expedientesPlugin]));
+  host = new PluginHost(
+    env.db,
+    orderPlugins([tramitacionPlugin, expedientesPlugin, contactosPlugin]),
+  );
   await host.setup();
 });
 afterAll(async () => {
@@ -143,7 +147,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await resetDb(env.db);
-  await env.db.execute(sql`truncate table tra_contacts, tra_templates cascade`);
+  await env.db.execute(sql`truncate table ct_contacts, ct_dismissed, tra_templates cascade`);
   await host.setup();
   await resetMailbox(ANA);
   outlook = await otherClient(ANA);
@@ -152,7 +156,7 @@ beforeEach(async () => {
     db: env.db,
     secrets: env.secrets,
     rawStore: env.rawStore,
-    plugins: [expedientesPlugin, tramitacionPlugin],
+    plugins: [expedientesPlugin, contactosPlugin, tramitacionPlugin],
   });
   marta = await createUser(env.db, { email: "marta@c.test", name: "Marta", password: PASSWORD });
   await env.db.insert(accountAccess).values({ userId: marta.id, accountId: account.id });
@@ -268,18 +272,22 @@ describe("tramitación", () => {
     view = (await call("GET", `${BASE}/cases/${view.case.id}`)).json<View>();
     expect(task(view, "T2").chaseCount).toBe(2);
 
-    // Un tercero del directorio: el perito. Su correo se reconoce y cumple la tarea.
+    // Un tercero de la agenda: el perito. Su correo se reconoce y cumple la tarea.
     const perito = (
-      await call("POST", `${BASE}/contacts`, {
-        role: "perito",
+      await call("POST", `/api/plugins/contactos/contacts`, {
+        kind: "empresa",
         name: "Peritaciones Norte",
-        email: "informes@norte.test",
+        roles: ["perito"],
+        channels: [{ kind: "email", value: "Informes@Norte.test" }],
       })
     ).json<{ contact: { id: string } }>().contact;
-    expect(
-      (await call("POST", `${BASE}/contacts`, { role: "perito", name: "peritaciones norte" }))
-        .statusCode,
-    ).toBe(409);
+    // Un correo solo puede ser de una ficha.
+    const taken = await call("POST", `/api/plugins/contactos/contacts`, {
+      name: "Otro",
+      channels: [{ kind: "email", value: "informes@norte.test" }],
+    });
+    expect(taken.statusCode).toBe(409);
+    expect(taken.json<{ message: string }>().message).toContain("Peritaciones Norte");
     for (const key of ["T3", "T4", "T6"])
       view = (await patch(key, { status: "hecha" })).json<View>();
     view = (await patch("T7", { waiting: { contactId: perito.id } })).json<View>();

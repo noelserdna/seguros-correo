@@ -5,7 +5,7 @@ import type { Db, Tx } from "../../db/client.ts";
 import { assertAcyclic } from "./engine.ts";
 import { SEED_TEMPLATE } from "./template-seed.ts";
 
-/** Clases del directorio de terceros. */
+/** Papeles de los terceros: los de la agenda de contactos, sin el cliente. */
 export const CONTACT_ROLES = [
   "aseguradora",
   "perito",
@@ -69,25 +69,6 @@ export function validateTree(tree: z.output<typeof templateTree>): void {
 }
 
 export async function setupTramitacion(db: Db): Promise<void> {
-  await db.execute(sql`
-    create table if not exists tra_contacts (
-      id uuid primary key default gen_random_uuid(),
-      role text not null,
-      name text not null,
-      email text,
-      phone text,
-      notes text,
-      active boolean not null default true,
-      created_by uuid,
-      created_at timestamptz not null default now()
-    )`);
-  await db.execute(
-    sql`create unique index if not exists tra_contacts_name on tra_contacts (lower(name))`,
-  );
-  await db.execute(
-    sql`create index if not exists tra_contacts_email on tra_contacts (lower(email))`,
-  );
-
   await db.execute(sql`
     create table if not exists tra_templates (
       id uuid primary key default gen_random_uuid(),
@@ -158,7 +139,7 @@ export async function setupTramitacion(db: Db): Promise<void> {
       status text not null default 'pendiente',
       assignee_id uuid references users(id) on delete set null,
       waits_on_role text,
-      waiting_contact_id uuid references tra_contacts(id) on delete set null,
+      waiting_contact_id uuid references ct_contacts(id) on delete set null,
       waiting_client boolean not null default false,
       waiting_since date,
       chase_at date,
@@ -205,7 +186,7 @@ export async function setupTramitacion(db: Db): Promise<void> {
   await db.execute(sql`
     create table if not exists tra_case_parties (
       case_id uuid not null references exp_cases(id) on delete cascade,
-      contact_id uuid not null references tra_contacts(id) on delete cascade,
+      contact_id uuid not null references ct_contacts(id) on delete cascade,
       role text not null,
       reference text,
       added_at timestamptz not null default now(),
@@ -222,6 +203,8 @@ export async function setupTramitacion(db: Db): Promise<void> {
       detail jsonb not null default '{}'::jsonb
     )`);
   await db.execute(sql`create index if not exists tra_events_case on tra_events (case_id, at)`);
+
+  await migrateDirectory(db);
 
   // La plantilla de serie, solo la primera vez.
   const existing = await db.execute(sql`select 1 from tra_templates limit 1`);
@@ -316,4 +299,48 @@ export async function loadTemplate(db: Db | Tx, id: string) {
         }),
     })),
   };
+}
+
+/**
+ * El directorio de terceros que tenía la tramitación pasa a la agenda de contactos, con los
+ * mismos identificadores: esperas e intervinientes siguen apuntando a la misma ficha.
+ */
+async function migrateDirectory(db: Db): Promise<void> {
+  const old = await db.execute<{ ok: boolean }>(
+    sql`select to_regclass('tra_contacts') is not null as ok`,
+  );
+  if (!old.rows[0]?.ok) return;
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`
+      insert into ct_contacts (id, kind, name, notes, archived, created_by, created_at)
+      select id, 'empresa', name, notes, not active, created_by, created_at from tra_contacts
+      on conflict (id) do nothing`);
+    await tx.execute(sql`
+      insert into ct_roles (contact_id, role) select id, role from tra_contacts on conflict do nothing`);
+    await tx.execute(sql`
+      insert into ct_channels (contact_id, kind, value, source)
+      select id, 'email', lower(trim(email)), 'migrado' from tra_contacts where coalesce(trim(email), '') <> ''
+      on conflict do nothing`);
+    await tx.execute(sql`
+      insert into ct_channels (contact_id, kind, value, source)
+      select id, 'phone',
+             case when length(d) = 9 and d ~ '^[6789]' then '34' || d else d end, 'migrado'
+        from (select id, regexp_replace(regexp_replace(phone, '\\D', '', 'g'), '^00', '') as d from tra_contacts
+               where coalesce(trim(phone), '') <> '') p
+       where length(d) >= 6
+      on conflict do nothing`);
+    await tx.execute(
+      sql`alter table tra_tasks drop constraint if exists tra_tasks_waiting_contact_id_fkey`,
+    );
+    await tx.execute(sql`
+      alter table tra_tasks add constraint tra_tasks_waiting_contact_id_fkey
+        foreign key (waiting_contact_id) references ct_contacts(id) on delete set null`);
+    await tx.execute(
+      sql`alter table tra_case_parties drop constraint if exists tra_case_parties_contact_id_fkey`,
+    );
+    await tx.execute(sql`
+      alter table tra_case_parties add constraint tra_case_parties_contact_id_fkey
+        foreign key (contact_id) references ct_contacts(id) on delete cascade`);
+    await tx.execute(sql`drop table tra_contacts`);
+  });
 }

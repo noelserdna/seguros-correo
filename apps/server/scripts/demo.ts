@@ -1096,26 +1096,71 @@ async function expedientes(): Promise<void> {
       ...POLICE.map((p) => ["policia", p] as [string, Party]),
       ["grua", TOW],
     ];
+    // La agenda de contactos: los terceros y, para cada cliente, su empresa y su persona.
+    const C = "/plugins/contactos";
+    const ensureContact = async (body: {
+      kind: "persona" | "empresa";
+      name: string;
+      roles: string[];
+      email?: string;
+      phone?: string;
+      companyId?: string;
+    }) => {
+      const found = body.email
+        ? await api<{ contact: { id: string } | null }>(
+            "GET",
+            `${C}/by-address?address=${encodeURIComponent(body.email)}`,
+          )
+        : null;
+      if (found?.contact) return found.contact.id;
+      const list = await api<{ contacts: { id: string; name: string }[] }>(
+        "GET",
+        `${C}/contacts?q=${encodeURIComponent(body.name)}`,
+      );
+      const same = list.contacts.find((row) => row.name === body.name);
+      if (same) return same.id;
+      const channels = [
+        ...(body.email ? [{ kind: "email", value: body.email }] : []),
+        ...(body.phone ? [{ kind: "phone", value: body.phone, label: "móvil" }] : []),
+      ];
+      return (
+        await api<{ contact: { id: string } }>("POST", `${C}/contacts`, {
+          kind: body.kind,
+          name: body.name,
+          roles: body.roles,
+          companyId: body.companyId ?? null,
+          channels,
+        })
+      ).contact.id;
+    };
     const contacts = new Map<string, string>();
     for (const [role, p] of directory) {
-      const found = await api<{ contacts: { id: string; name: string }[] }>(
-        "GET",
-        `${T}/contacts?all=1&q=${encodeURIComponent(p.name)}`,
+      contacts.set(
+        p.name,
+        await ensureContact({ kind: "empresa", name: p.name, roles: [role], email: p.address }),
       );
-      const existing = found.contacts.find(
-        (row) => row.name.toLowerCase() === p.name.toLowerCase(),
+    }
+    const clientIds = new Map<string, string>();
+    for (const [index, client] of CLIENTS.entries()) {
+      if (clientIds.has(client.address)) continue;
+      const companyId = await ensureContact({
+        kind: "empresa",
+        name: client.company,
+        roles: ["cliente"],
+      });
+      // Móviles inventados (rango 600 000 1xx), para que se vean en la ficha.
+      const phone = `600000${String(100 + index).padStart(3, "0")}`;
+      clientIds.set(
+        client.address,
+        await ensureContact({
+          kind: "persona",
+          name: client.person,
+          roles: ["cliente"],
+          email: client.address,
+          phone,
+          companyId,
+        }),
       );
-      const id =
-        existing?.id ??
-        (
-          await api<{ contact: { id: string } }>("POST", `${T}/contacts`, {
-            role,
-            name: p.name,
-            email: p.address,
-          })
-        ).contact.id;
-      if (existing) await api("PUT", `${T}/contacts/${id}`, { email: p.address, active: true });
-      contacts.set(p.name, id);
     }
     const templates = await api<{ templates: { id: string; active: boolean; name: string }[] }>(
       "GET",
@@ -1190,6 +1235,9 @@ async function expedientes(): Promise<void> {
         title: `${c.client.company} · ${c.client.plate}`,
       });
       caseId = view.case.id;
+      await api("PUT", `${C}/cases/${caseId}/client`, {
+        contactId: clientIds.get(c.client.address),
+      });
       opened++;
       await db.execute(
         sql`update exp_cases set created_at = ${at(d[0]!, 10).toISOString()}::timestamptz where id = ${caseId}`,

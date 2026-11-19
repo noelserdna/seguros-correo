@@ -447,17 +447,16 @@ describe("motor de la tramitación", () => {
 });
 
 describe("quién escribe", () => {
-  it("reconoce al tercero esperado por su correo o por su WhatsApp", async () => {
-    const { isFrom, phoneDigits } = await import("./store.ts");
+  it("reconoce al tercero esperado por cualquiera de sus correos o su WhatsApp", async () => {
+    const { isFrom } = await import("./store.ts");
     const task = {
-      waitingContactEmail: "Informes@Norte.test",
-      waitingContactPhone: "600 111 222",
-    } as Parameters<typeof isFrom>[0];
-    expect(isFrom(task, "informes@norte.test")).toBe(true);
+      waitingContactEmails: ["informes@norte.test", "peritos@norte.test"],
+      waitingContactPhones: ["34600111222"],
+    };
+    expect(isFrom(task, "Informes@Norte.test")).toBe(true);
+    expect(isFrom(task, "peritos@norte.test")).toBe(true);
     expect(isFrom(task, "34600111222@whatsapp.invalid")).toBe(true);
     expect(isFrom(task, "34600999999@whatsapp.invalid")).toBe(false);
     expect(isFrom(task, "otro@norte.test")).toBe(false);
-    expect(phoneDigits("+34 600 111 222")).toBe("34600111222");
-    expect(phoneDigits("0034600111222")).toBe("34600111222");
   });
 });

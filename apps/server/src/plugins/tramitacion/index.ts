@@ -22,7 +22,6 @@ import type { MailEvent, ServerPlugin } from "../host.ts";
 import { addBusinessDays, addCalendarDays, dayOf, daysBetween, type Day } from "./days.ts";
 import { assertAcyclic, CycleError, type EngineCase, type EventKind } from "./engine.ts";
 import {
-  CONTACT_ROLES,
   loadTemplate,
   PARTY_ROLES,
   saveTemplate,
@@ -98,19 +97,6 @@ const partyBody = z.object({
 });
 const partyParams = z.object({ id: z.uuid(), contactId: z.uuid() });
 const closeBody = z.object({ reason: z.enum(CLOSE_REASONS), force: z.boolean().optional() });
-const contactBody = z.object({
-  role: z.enum(CONTACT_ROLES),
-  name: z.string().trim().min(1).max(120),
-  email: z.email().nullable().optional(),
-  phone: z.string().trim().max(40).nullable().optional(),
-  notes: z.string().trim().max(1000).nullable().optional(),
-});
-const contactPatch = contactBody.partial().extend({ active: z.boolean().optional() });
-const contactQuery = z.object({
-  q: z.string().trim().max(80).optional(),
-  role: z.enum(CONTACT_ROLES).optional(),
-  all: z.enum(["0", "1"]).optional(),
-});
 const portfolioQuery = z.object({
   estado: z.enum(["abiertos", "cerrados", "todos"]).default("abiertos"),
   salud: z.enum(["vencidas", "parado", "riesgo", "al_dia"]).optional(),
@@ -171,7 +157,7 @@ export const tramitacionPlugin: ServerPlugin = {
   name: "Tramitación",
   description:
     "Lleva cada expediente como un caso: fases, tareas, plazos, esperas a terceros y un semáforo de salud. Necesita Expedientes.",
-  requires: ["expedientes"],
+  requires: ["expedientes", "contactos"],
   setup: setupTramitacion,
   // Cuando sale un correo de reclamación preparado desde una tarea, se apunta.
   async onEvent(event: MailEvent, db: Db) {
@@ -223,8 +209,11 @@ export const tramitacionPlugin: ServerPlugin = {
     async function caseView(row: CaseRow, data: PlanData, today: Day) {
       const summary = summarizeCase(engineCase(row), data, today);
       const parties = await db.execute(sql`
-        select p.contact_id as "contactId", p.role, p.reference, c.name, c.email, c.phone, c.role as "contactRole"
-          from tra_case_parties p join tra_contacts c on c.id = p.contact_id
+        select p.contact_id as "contactId", p.role, p.reference, c.name,
+               (select ch.value from ct_channels ch where ch.contact_id = c.id and ch.kind = 'email' order by ch.created_at limit 1) as email,
+               (select ch.value from ct_channels ch where ch.contact_id = c.id and ch.kind = 'phone' order by ch.created_at limit 1) as phone,
+               (select r.role from ct_roles r where r.contact_id = c.id order by r.role limit 1) as "contactRole"
+          from tra_case_parties p join ct_contacts c on c.id = p.contact_id
          where p.case_id = ${row.id} order by p.added_at`);
       const history = await db.execute(sql`
         select e.id, e.at, e.kind, e.detail, e.task_id as "taskId",
@@ -370,79 +359,6 @@ export const tramitacionPlugin: ServerPlugin = {
       return { ok: true };
     });
 
-    // ------------------------------------------------------------ directorio de terceros
-
-    app.get("/contacts", async (request) => {
-      requireSession(request);
-      const { q, role, all } = contactQuery.parse(request.query);
-      const pattern = q ? `%${q.toLowerCase().replace(/[%_\\]/g, "\\$&")}%` : null;
-      const rows = await db.execute(sql`
-        select c.id, c.role, c.name, c.email, c.phone, c.notes, c.active,
-               (select count(distinct p.case_id)::int from tra_case_parties p
-                  join exp_cases e on e.id = p.case_id
-                 where p.contact_id = c.id and e.status = 'abierto') as "openCases"
-          from tra_contacts c
-         where (${all === "1"} or c.active)
-           and (${role ?? null}::text is null or c.role = ${role ?? null})
-           and (${pattern}::text is null or lower(c.name) like ${pattern} or lower(coalesce(c.email, '')) like ${pattern})
-         order by lower(c.name) limit 200`);
-      return { contacts: rows.rows };
-    });
-
-    app.post("/contacts", async (request) => {
-      const { user } = requireSession(request);
-      const body = contactBody.parse(request.body);
-      const created = await db.execute<{ id: string }>(sql`
-        insert into tra_contacts (role, name, email, phone, notes, created_by)
-        values (${body.role}, ${body.name}, ${body.email ?? null}, ${body.phone ?? null}, ${body.notes ?? null}, ${user.id})
-        on conflict do nothing returning id`);
-      if (!created.rows[0])
-        throw new HttpError(409, "duplicate", "Ya hay un contacto con ese nombre.");
-      await audit(db, {
-        userId: user.id,
-        action: "plugin.tramitacion.contact_added",
-        target: body.name,
-      });
-      return { contact: { id: created.rows[0].id, ...body, active: true } };
-    });
-
-    app.put("/contacts/:id", async (request) => {
-      const session = requireSession(request);
-      const { id } = idParams.parse(request.params);
-      const body = contactPatch.parse(request.body);
-      // Desactivar un contacto es cosa de un administrador.
-      if (body.active !== undefined && session.user.role !== "admin") {
-        throw new HttpError(
-          403,
-          "forbidden",
-          "Solo un administrador puede desactivar un contacto.",
-        );
-      }
-      const columns: Record<string, string> = {
-        role: "role",
-        name: "name",
-        email: "email",
-        phone: "phone",
-        notes: "notes",
-        active: "active",
-      };
-      const sets = Object.entries(body).map(
-        ([key, value]) => sql`${sql.identifier(columns[key]!)} = ${value ?? null}`,
-      );
-      if (sets.length === 0) throw new HttpError(400, "empty", "No hay nada que cambiar.");
-      const changed = await db.execute(
-        sql`update tra_contacts set ${sql.join(sets, sql`, `)} where id = ${id} returning id`,
-      );
-      if (changed.rows.length === 0) throw notFound();
-      await audit(db, {
-        userId: session.user.id,
-        action: "plugin.tramitacion.contact_updated",
-        target: id,
-        detail: body,
-      });
-      return { ok: true };
-    });
-
     // ------------------------------------------------------------ abrir y aplicar plan
 
     // Abrir expediente desde un correo con su plan, en un solo paso.
@@ -543,7 +459,7 @@ export const tramitacionPlugin: ServerPlugin = {
           throw new HttpError(400, "waiting_required", "Hay que decir a quién se espera.");
         if (waiting.contactId) {
           const known = await db.execute(
-            sql`select 1 from tra_contacts where id = ${waiting.contactId}`,
+            sql`select 1 from ct_contacts where id = ${waiting.contactId}`,
           );
           if (known.rows.length === 0) throw notFound();
         }
@@ -820,7 +736,7 @@ export const tramitacionPlugin: ServerPlugin = {
       const { id } = idParams.parse(request.params);
       const body = partyBody.parse(request.body);
       const kase = await loadCase(user.id, id);
-      const known = await db.execute(sql`select 1 from tra_contacts where id = ${body.contactId}`);
+      const known = await db.execute(sql`select 1 from ct_contacts where id = ${body.contactId}`);
       if (known.rows.length === 0) throw notFound();
       await db.execute(sql`
         insert into tra_case_parties (case_id, contact_id, role, reference)

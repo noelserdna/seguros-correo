@@ -1,21 +1,18 @@
 /**
- * Apartados de Configuración de la tramitación: plantillas (lista de tareas con un panel para
- * editar cada una) y directorio de terceros (tabla con un cajón para añadir o cambiar).
+ * Apartado de Configuración de la tramitación: las plantillas, con una lista de tareas y un
+ * panel para editar cada una. Los terceros están en la agenda del módulo de contactos.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "../../api.ts";
 import { Icon } from "../../components/Icon.tsx";
 import { errorText, Field, settingsButton, settingsField } from "../../components/settings.tsx";
 import type { SettingsPage } from "../types.ts";
 import {
   BASE,
-  CONTACT_ROLES,
   KEY,
   PARTY_ROLES,
-  roleLabel,
   tramitacion,
-  type Contact,
   type TemplateSummary,
   type TemplateTask,
   type TemplateTree,
@@ -597,279 +594,6 @@ function Templates({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-// ------------------------------------------------------------------ directorio
-
-type ContactForm = { role: string; name: string; email: string; phone: string; notes: string };
-const EMPTY: ContactForm = { role: "perito", name: "", email: "", phone: "", notes: "" };
-
-function ContactDrawer({
-  contact,
-  isAdmin,
-  onClose,
-}: {
-  contact: Contact | null;
-  isAdmin: boolean;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState<ContactForm>(
-    contact
-      ? {
-          role: contact.role,
-          name: contact.name,
-          email: contact.email ?? "",
-          phone: contact.phone ?? "",
-          notes: contact.notes ?? "",
-        }
-      : EMPTY,
-  );
-  const set = (key: keyof ContactForm) => (event: { target: { value: string } }) =>
-    setForm({ ...form, [key]: event.target.value });
-  const done = () => {
-    void queryClient.invalidateQueries({ queryKey: KEY });
-    onClose();
-  };
-  const body = () => ({
-    role: form.role,
-    name: form.name,
-    email: form.email || null,
-    phone: form.phone || null,
-    notes: form.notes || null,
-  });
-  const save = useMutation({
-    mutationFn: (): Promise<unknown> =>
-      contact ? tramitacion.updateContact(contact.id, body()) : tramitacion.addContact(body()),
-    onSuccess: done,
-  });
-  const toggle = useMutation({
-    mutationFn: (target: Contact) =>
-      tramitacion.updateContact(target.id, { active: !target.active }),
-    onSuccess: done,
-  });
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (form.name.trim()) save.mutate();
-  };
-  const failure = save.error ?? toggle.error;
-  return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-ink/20">
-      <button
-        type="button"
-        aria-label="Cerrar el panel"
-        onClick={onClose}
-        className="grow border-0 bg-transparent"
-      />
-      <form
-        aria-label={contact ? `Editar ${contact.name}` : "Añadir tercero"}
-        onSubmit={submit}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
-        className="flex h-full w-full max-w-[400px] flex-col bg-panel shadow-[-8px_0_24px_rgba(27,35,48,0.12)]"
-      >
-        <div className="flex items-center px-5 pt-5 pb-3">
-          <h3 className="m-0 grow truncate text-base font-semibold">
-            {contact ? contact.name : "Añadir tercero"}
-          </h3>
-          <button type="button" aria-label="Cerrar" onClick={onClose} className={iconButton}>
-            <Icon name="close" />
-          </button>
-        </div>
-        <div className="flex grow flex-col gap-4 overflow-y-auto px-5 py-1">
-          <Field label="Tipo">
-            <select value={form.role} onChange={set("role")} className={settingsField}>
-              {CONTACT_ROLES.map((role) => (
-                <option key={role.id} value={role.id}>
-                  {role.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Nombre">
-            <input
-              autoFocus
-              required
-              value={form.name}
-              onChange={set("name")}
-              className={settingsField}
-            />
-          </Field>
-          <Field label="Correo" hint="Sirve para reconocer sus respuestas en el correo.">
-            <input
-              type="email"
-              value={form.email}
-              onChange={set("email")}
-              className={settingsField}
-            />
-          </Field>
-          <Field label="Teléfono">
-            <input value={form.phone} onChange={set("phone")} className={settingsField} />
-          </Field>
-          <Field label="Notas">
-            <textarea
-              rows={3}
-              value={form.notes}
-              onChange={set("notes")}
-              className={`${settingsField} h-auto! py-2`}
-            />
-          </Field>
-          {failure && (
-            <p role="alert" className="m-0 text-xs text-bad-ink">
-              {errorText(failure)}
-            </p>
-          )}
-          {contact && isAdmin && (
-            <div className="flex flex-col gap-1 border-t border-line-soft pt-4">
-              <button
-                type="button"
-                onClick={() => toggle.mutate(contact)}
-                disabled={toggle.isPending}
-                className={`${settingsButton.link} self-start ${contact.active ? "text-bad-ink!" : ""}`}
-              >
-                {contact.active ? "Desactivar" : "Volver a activar"}
-              </button>
-              <span className="text-xs leading-normal text-ink-2">
-                Un desactivado no se ofrece al registrar esperas, pero sigue en los expedientes
-                donde ya está.
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="flex justify-end gap-2 border-t border-line px-5 py-4">
-          <button type="button" onClick={onClose} className={settingsButton.secondary}>
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            disabled={!form.name.trim() || save.isPending}
-            className={settingsButton.primary}
-          >
-            {contact ? "Guardar" : "Añadir"}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function Directory({ isAdmin }: { isAdmin: boolean }) {
-  const contacts = useQuery({
-    queryKey: [...KEY, "directory"],
-    queryFn: () => apiGet<{ contacts: Contact[] }>(`${BASE}/contacts?all=1`),
-  });
-  const [role, setRole] = useState<string | null>(null);
-  const [q, setQ] = useState("");
-  const [editing, setEditing] = useState<Contact | "new" | null>(null);
-  const all = contacts.data?.contacts ?? [];
-  const needle = q.trim().toLowerCase();
-  const shown = all.filter(
-    (contact) =>
-      (!role || contact.role === role) &&
-      (!needle ||
-        [contact.name, contact.email ?? ""].some((text) => text.toLowerCase().includes(needle))),
-  );
-  const count = (id: string | null) =>
-    all.filter((contact) => contact.active && (!id || contact.role === id)).length;
-  const chip = (on: boolean) =>
-    `h-[26px] rounded-full border px-2.5 text-xs whitespace-nowrap ${on ? "border-accent bg-accent-soft font-semibold text-accent-strong" : "border-line-strong bg-panel text-ink hover:bg-ground"}`;
-  const roles = CONTACT_ROLES.filter((entry) => count(entry.id) > 0 || entry.id === role);
-
-  return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="flex h-[34px] w-full max-w-[300px] items-center gap-1.5 rounded-md border border-line-strong px-2.5 text-ink-2 focus-within:border-accent">
-          <Icon name="search" size={14} />
-          <span className="sr-only">Buscar</span>
-          <input
-            value={q}
-            onChange={(event) => setQ(event.target.value)}
-            placeholder="Buscar por nombre o correo"
-            className="min-w-0 grow border-0 bg-transparent text-[13px] text-ink outline-none"
-          />
-        </label>
-        <span className="grow" />
-        <button type="button" onClick={() => setEditing("new")} className={settingsButton.primary}>
-          <Icon name="plus" size={14} />
-          Añadir tercero
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          aria-pressed={role === null}
-          onClick={() => setRole(null)}
-          className={chip(role === null)}
-        >
-          Todos <span className="font-normal text-ink-2">{count(null)}</span>
-        </button>
-        {roles.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            aria-pressed={role === entry.id}
-            onClick={() => setRole(role === entry.id ? null : entry.id)}
-            className={chip(role === entry.id)}
-          >
-            {entry.plural} <span className="font-normal text-ink-2">{count(entry.id)}</span>
-          </button>
-        ))}
-      </div>
-      <div className="overflow-x-auto rounded-lg border border-line">
-        <table className="w-full min-w-[720px] table-fixed border-collapse text-[13px]">
-          <thead className="bg-ground text-left text-[11px] font-semibold tracking-[0.04em] text-ink-2 uppercase">
-            <tr className="border-b border-line">
-              <th className="w-[230px] px-3 py-2 font-semibold">Nombre</th>
-              <th className="w-[150px] px-3 py-2 font-semibold">Tipo</th>
-              <th className="px-3 py-2 font-semibold">Correo</th>
-              <th className="w-[130px] px-3 py-2 font-semibold">Teléfono</th>
-              <th className="w-[90px] px-3 py-2 text-right font-semibold">Abiertos</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((contact) => (
-              <tr
-                key={contact.id}
-                tabIndex={0}
-                onClick={() => setEditing(contact)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") setEditing(contact);
-                }}
-                className={`h-11 cursor-pointer border-b border-line-soft hover:bg-ground focus:bg-accent-soft focus:outline-none ${contact.active ? "" : "text-ink-2"}`}
-              >
-                <td className="truncate px-3 font-semibold">
-                  {contact.name}
-                  {!contact.active && <span className="font-normal"> · desactivado</span>}
-                </td>
-                <td className="truncate px-3">{roleLabel(contact.role)}</td>
-                <td className="truncate px-3 text-ink-2">{contact.email ?? "—"}</td>
-                <td className="truncate px-3">{contact.phone ?? "—"}</td>
-                <td className="px-3 text-right tabular-nums">{contact.openCases}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {contacts.isSuccess && shown.length === 0 && (
-          <p className="m-0 p-4 text-ink-2">
-            {all.length === 0
-              ? "Todavía no hay nadie en el directorio."
-              : "Nadie cumple el filtro."}
-          </p>
-        )}
-      </div>
-      <p className="m-0 text-xs leading-normal text-ink-2">
-        Cualquiera puede añadir y corregir; desactivar es cosa de quien administra.
-      </p>
-      {editing && (
-        <ContactDrawer
-          contact={editing === "new" ? null : editing}
-          isAdmin={isAdmin}
-          onClose={() => setEditing(null)}
-        />
-      )}
-    </div>
-  );
-}
-
 export const TRAMITACION_SETTINGS: SettingsPage[] = [
   {
     id: "plantillas",
@@ -880,14 +604,5 @@ export const TRAMITACION_SETTINGS: SettingsPage[] = [
     adminOnly: true,
     wide: true,
     Component: Templates,
-  },
-  {
-    id: "directorio",
-    group: "Tramitación",
-    label: "Directorio de terceros",
-    description:
-      "Peritos, talleres, aseguradoras y demás con los que se tramita. Lo comparte toda la oficina.",
-    wide: true,
-    Component: Directory,
   },
 ];

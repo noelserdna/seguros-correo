@@ -1,3 +1,4 @@
+import { contactosPlugin } from "./contactos/index.tsx";
 import { expedientesPlugin } from "./expedientes.tsx";
 import { visionPlugin } from "./vision.tsx";
 import { tramitacionPlugin } from "./tramitacion/index.tsx";
@@ -5,7 +6,13 @@ import { whatsappPlugin } from "./whatsapp.tsx";
 import type { WebPlugin } from "./types.ts";
 
 /** Todos los módulos que esta interfaz sabe mostrar. El orden decide el de sus entradas. */
-const known: WebPlugin[] = [expedientesPlugin, tramitacionPlugin, visionPlugin, whatsappPlugin];
+const known: WebPlugin[] = [
+  expedientesPlugin,
+  tramitacionPlugin,
+  contactosPlugin,
+  visionPlugin,
+  whatsappPlugin,
+];
 
 /**
  * Módulos activos. El servidor dice cuáles tiene cargados al abrir la sesión; hasta

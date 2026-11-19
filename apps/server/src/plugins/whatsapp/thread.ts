@@ -26,6 +26,18 @@ export async function unseen(db: Db, messages: WaMessage[]): Promise<WaMessage[]
   return fresh;
 }
 
+/** El nombre que tiene este teléfono en la agenda de contactos, si la hay. */
+async function agendaName(db: Db, phone: string): Promise<string | null> {
+  const active = await db.execute<{ ok: boolean }>(
+    sql`select to_regclass('ct_channels') is not null as ok`,
+  );
+  if (!active.rows[0]?.ok) return null;
+  const rows = await db.execute<{ name: string }>(sql`
+    select c.name from ct_channels ch join ct_contacts c on c.id = ch.contact_id
+     where ch.kind = 'phone' and ch.value = ${phone} and not c.archived limit 1`);
+  return rows.rows[0]?.name ?? null;
+}
+
 /** Escribe un mensaje en el hilo de su contacto. */
 export async function appendToThread(input: {
   db: Db;
@@ -52,7 +64,8 @@ export async function appendToThread(input: {
   const references = [
     ...new Set([thread?.firstMailId, inReplyTo].filter((id): id is string => Boolean(id))),
   ];
-  const name = message.name || thread?.name || null;
+  // El nombre de la agenda, si el módulo de contactos está activo y le conoce; si no, el de su perfil.
+  const name = (await agendaName(db, message.phone)) || message.name || thread?.name || null;
   const raw = await buildMail({
     message,
     name,

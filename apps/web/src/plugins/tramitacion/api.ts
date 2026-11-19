@@ -143,16 +143,29 @@ export type MyTasks = {
   groups: Record<"vencidas" | "hoy" | "semana" | "despues" | "esperando", MyTask[]>;
 };
 
+/** Un tercero de la agenda de contactos, con su primer papel para listas cortas. */
 export type Contact = {
   id: string;
   role: string;
+  roles: string[];
   name: string;
   email: string | null;
   phone: string | null;
-  notes: string | null;
-  active: boolean;
   openCases: number;
 };
+
+const CONTACTS = "/plugins/contactos";
+
+/** Busca en la agenda (el módulo de contactos, que la tramitación necesita). */
+export async function searchContacts(q: string, role?: string): Promise<{ contacts: Contact[] }> {
+  const params = new URLSearchParams({ ...(q ? { q } : {}), ...(role ? { role } : {}) });
+  const data = await apiGet<{ contacts: Omit<Contact, "role">[] }>(
+    `${CONTACTS}/contacts?${params}`,
+  );
+  return {
+    contacts: data.contacts.map((contact) => ({ ...contact, role: contact.roles[0] ?? "otro" })),
+  };
+}
 export type TemplateSummary = {
   id: string;
   name: string;
@@ -268,6 +281,14 @@ export const tramitacion = {
       : apiPost<{ template: TemplateTree }>(`${BASE}/templates`, tree),
   duplicateTemplate: (id: string) =>
     apiPost<{ template: TemplateTree }>(`${BASE}/templates/${id}/duplicate`, {}),
-  addContact: (body: object) => apiPost<{ contact: Contact }>(`${BASE}/contacts`, body),
-  updateContact: (id: string, body: object) => apiPut<{ ok: true }>(`${BASE}/contacts/${id}`, body),
+  /** Alta rápida en la agenda desde una espera: nombre, papel y, si se sabe, su correo. */
+  addContact: async (body: { role: string; name: string; email: string | null }) => {
+    const data = await apiPost<{ contact: Omit<Contact, "role"> }>(`${CONTACTS}/contacts`, {
+      kind: "empresa",
+      name: body.name,
+      roles: body.role === "otro" ? [] : [body.role],
+      channels: body.email ? [{ kind: "email", value: body.email }] : [],
+    });
+    return { contact: { ...data.contact, role: data.contact.roles[0] ?? body.role } };
+  },
 };
